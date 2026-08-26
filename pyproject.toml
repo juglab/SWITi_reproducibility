@@ -1,0 +1,13 @@
+[project]
+name = "switi-reproducibility"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "careamics",
+    "pooch>=1.9.0",
+]
+
+[tool.uv.sources]
+careamics = { git = "https://github.com/CAREamics/careamics.git", rev = "mc/feat/switi-merge" }
