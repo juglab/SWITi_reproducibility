@@ -17,27 +17,26 @@ Holds the pkl-driven factories that build the configs feeding a
 - :func:`create_algorithm_config` — `VAEBasedAlgorithm` assembled from the
   three above.
 """
-
-from __future__ import annotations
-
-import pickle
 from pathlib import Path
+from typing import Literal
 
-from careamics.config.algorithms.vae_algorithm_config import VAEBasedAlgorithm
+import yaml
+
+from careamics.config.algorithms import MicroSplitAlgorithm
 from careamics.config.architectures import LVAEConfig
 from careamics.config.data.data_config import (
-    SlidingWindowTiledPatchingConfig,
-    TiledPatchingConfig,
+    Mode,
 )
+from careamics.config.data.patching_strategies import SwitiPatchingConfig, TiledPatchingConfig
 from careamics.config.data.microsplit_data_config import MicroSplitDataConfig
 from careamics.config.data.normalization_config import MeanStdConfig
-from careamics.config.losses.loss_config import KLLossConfig, LVAELossConfig
-from careamics.config.noise_model.likelihood_config import GaussianLikelihoodConfig
-
 
 # Legacy `nonlin` strings are lowercase; `LVAEConfig.nonlinearity` is a
 # capitalised Literal.
-_NONLIN_MAP: dict[str, str] = {
+NonlinLiteral = Literal[
+    "None", "Sigmoid", "Softmax", "Tanh", "ReLU", "LeakyReLU", "ELU"
+]
+_NONLIN_MAP: dict[str, NonlinLiteral] = {
     "elu": "ELU",
     "relu": "ReLU",
     "leakyrelu": "LeakyReLU",
@@ -49,15 +48,15 @@ _NONLIN_MAP: dict[str, str] = {
 }
 
 
-def pkl_load(path: str | Path) -> dict:
+def load_config_data(path: str | Path) -> dict:
     """Load a legacy MicroSplit training config dump."""
-    with open(path, "rb") as f:
-        data = pickle.load(f)
-    return data
+    with open(path, "r") as f:
+        config_data = yaml.safe_load(f)
+    return config_data
 
 
 def get_predict_config(
-    pkl_data: dict,
+    config_data: dict,
     *,
     overlap: list[int],
     stride: list[int] | None = None,
@@ -95,23 +94,19 @@ def get_predict_config(
         Configuration ready to be passed to
         :func:`careamics.dataset.factory.create_microsplit_pred_dataset`.
     """
-    is_3d = pkl_data.get("mode_3D", False)
+    is_3d = config_data.get("mode_3D", False)
     axes = "CZYX" if is_3d else "CYX"
-    img = pkl_data["image_size"]
-    patch_size = [pkl_data["depth3D"], img, img] if is_3d else [img, img]
+    img = config_data["image_size"]
+    patch_size = [config_data["depth3D"], img, img] if is_3d else [img, img]
 
     patching = (
-        SlidingWindowTiledPatchingConfig(
-            patch_size=patch_size, overlaps=overlap, stride=stride
-        )
+        SwitiPatchingConfig(patch_size=patch_size, overlaps=overlap, stride=stride)
         if stride is not None
-        else TiledPatchingConfig(
-            patch_size=patch_size, overlaps=overlap
-        )
+        else TiledPatchingConfig(patch_size=patch_size, overlaps=overlap)
     )
 
     return MicroSplitDataConfig(
-        mode="predicting",
+        mode=Mode.PREDICTING,
         data_type="tiff",
         axes=axes,
         patching=patching,
@@ -121,14 +116,14 @@ def get_predict_config(
             target_means=target_means,
             target_stds=target_stds,
         ),
-        multiscale_count=pkl_data["multiscale_lowres_count"],
-        padding_mode=pkl_data["padding_mode"],
+        multiscale_count=config_data["multiscale_lowres_count"],
+        padding_mode=config_data["padding_mode"],
         batch_size=batch_size,
         augmentations=[],  # predict mode: no augs
     )
 
 
-def get_model_config(pkl_data: dict) -> LVAEConfig:
+def get_model_config(config_data: dict) -> LVAEConfig:
     """Build an `LVAEConfig` from a legacy MicroSplit training-config dump.
 
     Architecture fields come from `pkl_data["model"]`; spatial / multiscale
@@ -136,8 +131,8 @@ def get_model_config(pkl_data: dict) -> LVAEConfig:
     in order: `model.num_targets`, `len(data.target_idx_list)`,
     `data.num_channels` — covers both paired and multiplexed experiments.
     """
-    data = pkl_data["data"]
-    model = pkl_data["model"]
+    data = config_data["data"]
+    model = config_data["model"]
 
     is_3d = bool(data.get("mode_3D", False))
     img = int(data["image_size"])
@@ -149,7 +144,7 @@ def get_model_config(pkl_data: dict) -> LVAEConfig:
         strides = [2, 2]
 
     nonlin_raw = str(model.get("nonlin", "ELU"))
-    nonlinearity = _NONLIN_MAP.get(nonlin_raw.lower(), nonlin_raw)
+    nonlinearity = _NONLIN_MAP.get(nonlin_raw.lower(), "ELU")
 
     return LVAEConfig(
         architecture="LVAE",
@@ -158,50 +153,13 @@ def get_model_config(pkl_data: dict) -> LVAEConfig:
         decoder_conv_strides=strides,
         multiscale_count=int(data["multiscale_lowres_count"]),
         z_dims=list(model.get("z_dims", [128, 128, 128, 128])),
-        output_channels=_resolve_output_channels(pkl_data),
+        output_channels=_resolve_output_channels(config_data),
         nonlinearity=nonlinearity,
-        predict_logvar=model.get("predict_logvar"),
-        analytical_kl=bool(model.get("analytical_kl", False)),
+        predict_logvar=True if model.get("predict_logvar", False) else False,
     )
 
 
-def get_loss_config(pkl_data: dict) -> LVAELossConfig:
-    """Build an `LVAELossConfig` from a legacy training-config dump.
-
-    Loss type is hardcoded to ``"denoisplit_musplit"`` — every pre-trained
-    MicroSplit checkpoint we predict on was trained with it, and the loss isn't
-    consumed at predict time anyway; this just satisfies
-    :class:`VAEBasedAlgorithm`'s cross-validator. The kl-type is read from the
-    pkl in case anything downstream needs it.
-    """
-    loss = pkl_data["loss"]
-    kl_type = "kl_restricted" if bool(loss.get("restricted_kl", False)) else "kl"
-    return LVAELossConfig(
-        loss_type="denoisplit_musplit",
-        kl_params=KLLossConfig(loss_type=kl_type),
-    )
-
-
-def get_likelihood_config(pkl_data: dict) -> GaussianLikelihoodConfig:
-    """Build a `GaussianLikelihoodConfig` from a legacy training-config dump.
-
-    Read from the `model` section of the pkl. Not consumed at predict time
-    (chunking into mean/logvar is driven by :attr:`LVAEConfig.predict_logvar`),
-    but supplied so :class:`VAEBasedAlgorithm` matches what the checkpoint was
-    trained with.
-
-    TODO (v2): build `MultiChannelNMConfig` + `NMLikelihoodConfig` once we
-    decide how to stage / rewrite the noise-model paths from the legacy pkl
-    (they currently point at the original training host).
-    """
-    model = pkl_data["model"]
-    return GaussianLikelihoodConfig(
-        predict_logvar=model.get("predict_logvar"),
-        logvar_lowerbound=float(model.get("logvar_lowerbound", -5.0)),
-    )
-
-
-def create_algorithm_config(pkl_data: dict) -> VAEBasedAlgorithm:
+def create_algorithm_config(config_data: dict) -> MicroSplitAlgorithm:
     """Assemble a `VAEBasedAlgorithm` from a legacy training-config dump.
 
     Composes :func:`get_model_config`, :func:`get_loss_config` and
@@ -209,25 +167,20 @@ def create_algorithm_config(pkl_data: dict) -> VAEBasedAlgorithm:
     (CAREamics's umbrella label for muSplit / denoiSplit / denoiSplit-muSplit
     training).
     """
-    return VAEBasedAlgorithm(
-        algorithm="microsplit",
-        model=get_model_config(pkl_data),
-        loss=get_loss_config(pkl_data),
-        gaussian_likelihood=get_likelihood_config(pkl_data),
-    )
+    return MicroSplitAlgorithm(model=get_model_config(config_data))
 
 
-def _resolve_output_channels(pkl_data: dict) -> int:
+def _resolve_output_channels(config_data: dict) -> int:
     """Resolve the number of output (target) channels from a legacy pkl dump.
 
     Tries, in order: `model.num_targets`, `len(data.target_idx_list)`,
     `data.num_channels`. Covers both paired (HT_LIF24) and multiplexed
     (CARE3D / PaviaATN) experiments.
     """
-    model = pkl_data.get("model", {})
+    model = config_data.get("model", {})
     if model.get("num_targets") is not None:
         return int(model["num_targets"])
-    data = pkl_data.get("data", {})
+    data = config_data.get("data", {})
     target_idx_list = data.get("target_idx_list")
     if target_idx_list is not None:
         return len(target_idx_list)

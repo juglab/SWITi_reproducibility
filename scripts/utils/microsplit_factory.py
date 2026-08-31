@@ -9,7 +9,7 @@ import torch
 
 from careamics.lightning.modules.microsplit_module import MicroSplitModule
 
-from .config_factory import create_algorithm_config, pkl_load
+from .config_factory import create_algorithm_config, load_config_data
 
 if TYPE_CHECKING:
     pass
@@ -62,9 +62,7 @@ def convert_legacy_state_dict(state_dict: dict) -> dict:
 
 def build_microsplit_module(
     ckpt_path: str | Path,
-    pkl_path: str | Path,
-    *,
-    mmse_count: int = 1,
+    config_path: str | Path,
     device: "torch.device | str | None" = None,
 ) -> MicroSplitModule:
     """Instantiate a `MicroSplitModule` and load weights from a checkpoint.
@@ -85,10 +83,6 @@ def build_microsplit_module(
         (e.g. `<ckpt_dir>/BaselineVAECL_best.ckpt`).
     pkl_path : str or Path
         Path to the legacy training-config dump (e.g. `<ckpt_dir>/config.pkl`).
-    mmse_count : int, default=1
-        Number of stochastic forward passes per tile at predict time. `1` is
-        canonical for `SlidingWindowTiledPatching`; for classical inner tiling
-        raise to ~50.
     device : torch.device or str or None, default=None
         If provided, the module is moved to this device.
 
@@ -97,9 +91,8 @@ def build_microsplit_module(
     MicroSplitModule
         Module in eval mode with weights loaded.
     """
-    pkl_data = pkl_load(pkl_path)
+    pkl_data = load_config_data(config_path)
     algorithm_config = create_algorithm_config(pkl_data)
-    algorithm_config.mmse_count = mmse_count
 
     module = MicroSplitModule(algorithm_config=algorithm_config)
 

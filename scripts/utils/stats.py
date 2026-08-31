@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 import tifffile
 
-from .io import list_files
+from .io_utils import list_files
 
 logger = logging.getLogger(__name__)
 

@@ -92,7 +92,7 @@ del _first
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = build_microsplit_module(
     ckpt_path=ckpt_path,
-    pkl_path=pkl_path,
+    config_path=pkl_path,
     mmse_count=MMSE_COUNT,
     device=device,
 )

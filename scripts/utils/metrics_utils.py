@@ -60,7 +60,7 @@ def _normalize_for_lpips(imgs: list[NDArray]) -> list[NDArray]:
 def _compute_channelwise_psnr(
     pred_imgs: list[NDArray],
     gt_imgs: list[NDArray],
-    img_fnames: list[str] = None,
+    img_fnames: list[str],
 ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
     """Compute the channel-wise PSNR over the given images.
 
@@ -113,7 +113,7 @@ def _compute_channelwise_psnr(
 def _compute_channelwise_lpips(
     pred_imgs: list[NDArray],
     gt_imgs: list[NDArray],
-    img_fnames: list[str] = None,
+    img_fnames: list[str],
 ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
     """Compute the channel-wise LPIPS over the given images.
 
@@ -175,7 +175,7 @@ def _compute_channelwise_lpips(
 def _compute_channelwise_multiscale_ssim(
     pred_imgs: list[NDArray],
     gt_imgs: list[NDArray],
-    img_fnames: list[str] = None,
+    img_fnames: list[str],
 ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
     """Compute the channel-wise multiscale SSIM over the given images.
 
@@ -231,8 +231,8 @@ def _compute_channelwise_multiscale_ssim(
 def _compute_channelwise_microms3im(
     pred_imgs: list[NDArray],
     gt_imgs: list[NDArray],
-    img_fnames: list[str] = None,
-) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+    img_fnames: list[str],
+) -> tuple[dict[str, float] | None, dict[str, dict[str, float]] | None]:
     """Compute the channel-wise MicroMS3IM metric over the given images.
 
     For each channel, a MicroMS3IM scaler is fitted over all images for that
@@ -311,7 +311,7 @@ def _compute_channelwise_microms3im(
 def _compute_channelwise_pearson(
     pred_imgs: list[NDArray],
     gt_imgs: list[NDArray],
-    img_fnames: list[str] = None,
+    img_fnames: list[str],
 ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
     """Compute the channel-wise Pearson correlation over the given images.
 

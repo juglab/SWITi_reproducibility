@@ -41,9 +41,9 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from scripts.io import list_files
-from scripts.metrics_utils import compute_unmixing_metrics, log_metrics
-from scripts.stats import _load_canonical
+from utils.io_utils import list_files
+from utils.metrics_utils import compute_unmixing_metrics, log_metrics
+from utils.stats import _load_canonical
 
 
 def _ensure_canonical(arr: NDArray, *, is_3d: bool) -> NDArray:

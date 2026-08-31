@@ -22,15 +22,16 @@ import torch
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader
 from torch.utils.data._utils.collate import default_collate
-from tqdm import tqdm
+from lightning import Trainer
 
-from careamics.dataset.image_region_data import ImageRegionData
-from careamics.dev.sliding_window_tiled_pred import _move_input_to_device
+from careamics.dataset.factory.microsplit_factory import create_microsplit_pred_dataset
+from careamics.lightning.data.data_module_utils import initialize_data_pair
 from careamics.lightning.prediction.convert_prediction import convert_prediction
 
-from scripts.dataset_factory import build_pred_dataset
-from scripts.io import npz_key, save_inference_params, save_predictions_npz
-from scripts.microsplit_factory import build_microsplit_module
+from utils.config_factory import load_config_data, get_predict_config
+from utils.io_utils import npz_key, save_inference_params, save_predictions_npz
+from utils.microsplit_factory import build_microsplit_module
+from utils.stats import load_or_compute_stats
 
 
 def main(args: argparse.Namespace) -> Path:
@@ -40,60 +41,50 @@ def main(args: argparse.Namespace) -> Path:
     """
     data_dir = args.data_root / args.dataset
     ckpt_path = args.ckpt_root / args.dataset / "BaselineVAECL_best.ckpt"
-    pkl_path = args.ckpt_root / args.dataset / "config.pkl"
-    save_dir = args.out_root / args.dataset / f"predictions_MMSE{args.mmse_count}" / "inner_tiling"
+    config_path = args.ckpt_root / args.dataset / "config.yaml"
+    save_dir = (
+        args.out_root
+        / args.dataset
+        / f"predictions_MMSE{args.mmse_count}"
+        / "inner_tiling"
+    )
 
-    dataset = build_pred_dataset(
-        data_dir=data_dir,
-        pkl_path=pkl_path,
+    config_data = load_config_data(config_path)["data"]
+    is_3d = bool(config_data.get("mode_3D", False))
+    stats = load_or_compute_stats(
         name=args.dataset,
-        split=args.split,
+        data_dir=data_dir,
+        is_3d=is_3d,
+        force=args.force_recompute_stats,
+    )
+    pred_config = get_predict_config(
+        config_data,
         overlap=args.overlap,
         stride=None,
         batch_size=args.batch_size,
-        force_recompute_stats=args.force_recompute_stats,
+        **stats,
     )
-    print(f"dataset: n_patches={len(dataset)}, mode={dataset.config.mode}")
-
-    loader = DataLoader(
+    pred_data_validated, _ = initialize_data_pair(
+        data_type=pred_config.data_type, input_data=data_dir / "inputs" / args.split
+    )
+    dataset = create_microsplit_pred_dataset(
+        config=pred_config, input_data=pred_data_validated
+    )
+    dataloader = DataLoader(
         dataset,
-        batch_size=dataset.config.batch_size,
+        batch_size=args.batch_size,
         collate_fn=default_collate,
-        num_workers=args.num_workers,
-        shuffle=False,
+        **pred_config.pred_dataloader_params,
     )
 
-    device = torch.device(
-        "cuda" if (args.device == "auto" and torch.cuda.is_available())
-        else ("cuda" if args.device == "cuda" else "cpu")
-    )
-    print(f"device: {device}")
-    model = build_microsplit_module(
-        ckpt_path=ckpt_path,
-        pkl_path=pkl_path,
-        mmse_count=args.mmse_count,
-        device=device,
-    )
-    model.set_target_stats(
-        dataset.normalization.target_means,
-        dataset.normalization.target_stds,
-    )
-
-    # Collect all batched mean regions; `convert_prediction(tiled=True)` then
-    # decollates, groups by `data_idx`, and stitches each image in one shot via
-    # `stitch_single_prediction` (direct paste — correct for non-overlapping
-    # kept regions).
-    predictions: list[ImageRegionData] = []
-    with torch.inference_mode():
-        for batch_idx, batch in tqdm(
-            enumerate(loader), total=len(loader), desc="Predicting"
-        ):
-            batch = _move_input_to_device(batch, device)
-            mean_region_batch, _std = model.predict_step(batch, batch_idx)
-            predictions.append(mean_region_batch)
+    model = build_microsplit_module(ckpt_path=ckpt_path, config_path=config_path)
+    model.n_samples = args.mmse_count
+    trainer = Trainer()
+    predictions = trainer.predict(model=model, dataloaders=dataloader)
+    prediction_means = [pred[0] for pred in predictions] # ignore standard deviation
 
     preds_list, sources = convert_prediction(
-        predictions, tiled=True, restore_shape=False
+        prediction_means, tiled=True, restore_shape=False
     )
     print(f"stitched {len(preds_list)} image(s)")
 
@@ -129,53 +120,70 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--dataset", required=True,
-        help="dataset name; resolves <data_root>/<dataset>/ and "
-             "<ckpt_root>/<dataset>/",
+        "--dataset",
+        required=True,
+        help="dataset name; resolves <data_root>/<dataset>/ and <ckpt_root>/<dataset>/",
     )
     p.add_argument(
-        "--split", default="test", choices=["train", "val", "test"],
+        "--split",
+        default="test",
+        choices=["train", "val", "test"],
         help="which on-disk split to predict on",
     )
     p.add_argument(
-        "--data-root", type=Path,
+        "--data-root",
+        type=Path,
         default=Path("/project/careamics/switi/data"),
         help="root of <dataset>/{inputs,targets}/{train,val,test}/*.tif",
     )
     p.add_argument(
-        "--ckpt-root", type=Path,
+        "--ckpt-root",
+        type=Path,
         default=Path("/project/careamics/switi/ckpts"),
         help="root of <dataset>/{BaselineVAECL_best.ckpt, config.pkl}",
     )
     p.add_argument(
-        "--out-root", type=Path,
+        "--out-root",
+        type=Path,
         default=Path("/project/careamics/switi/results"),
         help="root for predictions; output written to "
-             "<out_root>/<dataset>/predictions/inner_tiling/predictions.npz",
+        "<out_root>/<dataset>/predictions/inner_tiling/predictions.npz",
     )
     p.add_argument(
-        "--overlap", type=int, nargs="+", default=[32, 32],
+        "--overlap",
+        type=int,
+        nargs="+",
+        default=[32, 32],
         metavar="N",
         help="tile overlap per spatial axis (length 2 for 2D, 3 for 3D)",
     )
     p.add_argument(
-        "--mmse-count", type=int, default=64,
+        "--mmse-count",
+        type=int,
+        default=64,
         help="number of stochastic forward passes per tile",
     )
     p.add_argument(
-        "--batch-size", type=int, default=128,
+        "--batch-size",
+        type=int,
+        default=128,
         help="prediction batch size",
     )
     p.add_argument(
-        "--num-workers", type=int, default=0,
+        "--num-workers",
+        type=int,
+        default=0,
         help="DataLoader num_workers",
     )
     p.add_argument(
-        "--device", default="auto", choices=["auto", "cuda", "cpu"],
+        "--device",
+        default="auto",
+        choices=["auto", "cuda", "cpu"],
         help='"auto" picks cuda when available, falls back to cpu',
     )
     p.add_argument(
-        "--force-recompute-stats", action="store_true",
+        "--force-recompute-stats",
+        action="store_true",
         help="bypass the <data_dir>/stats.json cache",
     )
     return p.parse_args(argv)

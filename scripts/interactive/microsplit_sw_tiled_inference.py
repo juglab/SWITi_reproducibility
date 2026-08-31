@@ -26,7 +26,7 @@ from careamics.dev.sliding_window_tiled_pred import (
     sw_tiled_prediction,
 )
 
-from scripts.config_factory import pkl_load
+from scripts.config_factory import load_config_data
 from scripts.dataset_factory import build_pred_dataset
 from scripts.io import npz_key, save_predictions_npz
 from scripts.microsplit_factory import build_microsplit_module
@@ -53,7 +53,7 @@ pkl_path = CKPT_ROOT / DATASET / "config.pkl"
 # Given tile size (from pkl) and `OVERLAP`, pick the smallest per-pixel coverage
 # >= `MMSE_COUNT`. YX stride is constrained symmetric; for 3D `STRIDE_Z` is
 # explicit and the YX subproblem solves `K_y * K_x >= ceil(MMSE_COUNT / K_z)`.
-_pkl_data = pkl_load(pkl_path)["data"]
+_pkl_data = load_config_data(pkl_path)["data"]
 _is_3d = bool(_pkl_data.get("mode_3D", False))
 _img = int(_pkl_data["image_size"])
 _patch_size = [_pkl_data["depth3D"], _img, _img] if _is_3d else [_img, _img]
@@ -115,7 +115,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # comes from the patching geometry derived above.
 model = build_microsplit_module(
     ckpt_path=ckpt_path,
-    pkl_path=pkl_path,
+    config_path=pkl_path,
     mmse_count=1,
     device=device,
 )

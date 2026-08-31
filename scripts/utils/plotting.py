@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy.typing import NDArray
 
-from scripts.plotting_utils import (
+from .plotting_utils import (
     _add_channel_image,
     _add_metrics_info,
     _derive_vmaxs,
