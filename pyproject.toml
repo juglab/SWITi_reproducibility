@@ -7,7 +7,9 @@ requires-python = ">=3.11"
 dependencies = [
     "careamics",
     "pooch>=1.9.0",
+    "tilartmetrics",
 ]
 
 [tool.uv.sources]
 careamics = { git = "https://github.com/CAREamics/careamics.git", rev = "mc/feat/switi-merge" }
+tilartmetrics = { git = "https://github.com/juglab/TilArtMetrics.git" }
