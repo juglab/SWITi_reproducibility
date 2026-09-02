@@ -19,7 +19,7 @@
 # `inference_params.json`, so no per-dataset CLI args are needed here. A GPU is
 # requested to accelerate LPIPS.
 
-DSET_LIST=(CARE3D_liver CARE3D_zebrafish HT_LIF24_500ms HT_LIF24_5ms PaviaATN)
+DSET_LIST=(CBG_Z18 HT_LIF24 PaviaATN)
 DATASET=${DSET_LIST[$SLURM_ARRAY_TASK_ID]}
 
 RESULTS_ROOT=/project/careamics/switi/results
