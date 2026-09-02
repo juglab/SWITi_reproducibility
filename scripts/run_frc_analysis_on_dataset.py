@@ -35,9 +35,8 @@ Example::
 from __future__ import annotations
 
 import argparse
-import warnings
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 import matplotlib
 
