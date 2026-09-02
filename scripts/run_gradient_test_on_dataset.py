@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Iterator
 from pathlib import Path
+import json
 
 import numpy as np
 import pandas as pd
@@ -87,17 +88,23 @@ def parse_args() -> argparse.Namespace:
     # Gradient-test geometry / parameters.
     p.add_argument(
         "--tile_size",
-        required=True,
         type=int,
         nargs="+",
-        help="TiledPatching tile size per spatial axis.",
+        default=None,
+        help=(
+            "TiledPatching tile size per spatial axis. If None will attempt to read it "
+            "from the inner tiling inference_config.json."
+        ),
     )
     p.add_argument(
         "--overlap",
-        required=True,
         type=int,
         nargs="+",
-        help="TiledPatching overlap per spatial axis.",
+        default=None,
+        help=(
+            "TiledPatching overlap per spatial axis. If None will attempt to read it "
+            "from the inner tiling inference_config.json."
+        ),
     )
     p.add_argument(
         "--statistic",
@@ -153,7 +160,7 @@ def parse_args() -> argparse.Namespace:
 def _ensure_channel_first(arr: np.ndarray, n_spatial: int) -> np.ndarray:
     """Squeeze to channel-first ``(C, *spatial)`` for the given spatial ndim.
 
-    ``n_spatial`` is 2 for 2-D ``(C, H, W)`` or 3 for 3-D ``(C, D, H, W)``. 
+    ``n_spatial`` is 2 for 2-D ``(C, H, W)`` or 3 for 3-D ``(C, D, H, W)``.
     A bare spatial array with no channel axis (``(H, W)`` / ``(D, H, W)``) is
     promoted to a single channel.
     """
@@ -207,9 +214,59 @@ def iter_gt_images(
     ``n_spatial`` (2 or 3) selects the expected channel-first layout.
     """
     for name in image_names:
-        yield name, _ensure_channel_first(
-            tiff.imread(target_dir / _gt_filename(name)), n_spatial
+        yield (
+            name,
+            _ensure_channel_first(
+                tiff.imread(target_dir / _gt_filename(name)), n_spatial
+            ),
         )
+
+
+def read_tile_size_and_overlap(
+    pred_dir: Path, tile_size: tuple[int, ...] | None, overlap: tuple[int, ...] | None
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """
+    Retrieve the tile size and overlap from saved configurations.
+
+    Parameters
+    ----------
+    pred_dir : Path
+        The directory containing the predictions from each method.
+    tile_size : tuple[int, ...] | None
+        If not None will directly return tile size.
+    overlap : tuple[int, ...] | None
+        If not None will directly return the overlap
+
+    Returns
+    -------
+    tuple[int, ...]
+        The tile size.
+    tuple[int, ...]
+        The overlap
+
+    Raises
+    ------
+    FileNotFoundError
+        If the inference_config.json file for the inner_tiling method cannot be found.
+    """
+    if tile_size is not None and overlap is not None:
+        return tile_size, overlap
+
+    inference_config_path = pred_dir / "inner_tiling" / "inference_params.json"
+    try:
+        with open(inference_config_path) as f:
+            inference_config = json.load(f)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(
+            f"Could not find inference config at {inference_config_path}."
+        ) from e
+
+    if tile_size is None:
+        tile_size = tuple(inference_config["tile_size"])
+    if overlap is None:
+        overlap = tuple(inference_config["overlap"])
+
+    return tile_size, overlap
 
 
 def main() -> None:
@@ -218,16 +275,19 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     pred_root = args.results_root / args.dataset / args.predictions_subdir
 
-    n_spatial = len(args.tile_size)
-    if len(args.overlap) != n_spatial:
+    tile_size, overlap = read_tile_size_and_overlap(
+        pred_root, args.tile_size, args.overlap
+    )
+    n_spatial = len(tile_size)
+    if len(overlap) != n_spatial:
         raise ValueError(
             f"tile_size has {n_spatial} entries but overlap has "
-            f"{len(args.overlap)}; both must list one value per spatial axis"
+            f"{len(overlap)}; both must list one value per spatial axis"
         )
 
     cfg = GradientTestConfig(
-        tile_size=list(args.tile_size),
-        overlap=list(args.overlap),
+        tile_size=list(tile_size),
+        overlap=list(overlap),
         statistic=args.statistic,
         strip_width=args.strip_width,
         block_size=args.block_size,
@@ -250,14 +310,14 @@ def main() -> None:
     # (method_name, lazy image iterator) sources, GT appended as a null reference.
     sources: list[tuple[str, Iterator[tuple[str, np.ndarray]]]] = [
         (
-            name, 
+            name,
             iter_prediction_images(
                 pred_root / METHODS_TO_SUBDIR[name] / "predictions.npz",
                 image_names,
                 n_spatial,
-            )
+            ),
         )
-        for name  in args.methods
+        for name in args.methods
     ]
     if args.include_gt:
         target_dir = args.data_root / args.dataset / "targets" / "test"
