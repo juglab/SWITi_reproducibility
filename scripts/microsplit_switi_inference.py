@@ -18,9 +18,11 @@ coverage comes from the patching geometry).
 
 Run from the repo root:
 
-    python -m scripts.microsplit_sw_tiled_predict --dataset HT_LIF24_5ms \\
+    uv run python scripts/microsplit_switi_inference.py --dataset HT_LIF24 \\
+        --data-root /path/to/data --checkpoint-root /path/to/checkpoints \\
         --mmse-count 64
-    python -m scripts.microsplit_sw_tiled_predict --dataset CARE3D_liver \\
+    uv run python scripts/microsplit_switi_inference.py --dataset CBG_Z18 \\
+        --data-root /path/to/data --checkpoint-root /path/to/checkpoints \\
         --overlap 0 32 32 --mmse-count 320 --stride-z 1
 """
 
@@ -45,10 +47,10 @@ def main(args: argparse.Namespace) -> Path:
     Returns the path of the written NPZ file.
     """
     data_dir = args.data_root / args.dataset
-    ckpt_path = args.ckpt_root / args.dataset / "BaselineVAECL_best.ckpt"
-    config_path = args.ckpt_root / args.dataset / "config.yaml"
+    ckpt_path = args.checkpoint_root / args.dataset / "BaselineVAECL_best.ckpt"
+    config_path = args.checkpoint_root / args.dataset / "config.yaml"
     save_dir = (
-        args.out_root
+        args.prediction_root
         / args.dataset
         / f"predictions_MMSE{args.mmse_count}"
         / "sw_inner_tiling"
@@ -146,8 +148,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--dataset",
         required=True,
-        help="experiment name; resolves <data_root>/<dataset>/ and "
-        "<ckpt_root>/<dataset>/",
+        help=(
+            "dataset name; resolves <data-root>/<dataset>/ and "
+            "<checkpoint-root>/<dataset>/"
+        ),
     )
     p.add_argument(
         "--split",
@@ -158,21 +162,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--data-root",
         type=Path,
-        default=Path("/project/careamics/switi/data"),
+        required=True,
         help="root of <dataset>/{inputs,targets}/{train,val,test}/*.tif",
     )
     p.add_argument(
-        "--ckpt-root",
+        "--checkpoint-root",
         type=Path,
-        default=Path("/project/careamics/switi/ckpts"),
-        help="root of <dataset>/{BaselineVAECL_best.ckpt, config.pkl}",
+        required=True,
+        help="root of <dataset>/{BaselineVAECL_best.ckpt, config.yaml}",
     )
     p.add_argument(
-        "--out-root",
+        "--prediction-root",
         type=Path,
-        default=Path("/project/careamics/switi/results"),
+        default=Path("results"),
         help="root for predictions; output written to "
-        "<out_root>/<dataset>/predictions/sw_inner_tiling/predictions.npz",
+        "<prediction-root>/<dataset>/predictions_MMSE<N>/sw_inner_tiling/predictions.npz",
     )
     p.add_argument(
         "--overlap",
@@ -215,7 +219,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--force-recompute-stats",
         action="store_true",
-        help="bypass the <data_dir>/stats.json cache",
+        help="bypass the <data-root>/<dataset>/stats.json cache",
     )
     return p.parse_args(argv)
 

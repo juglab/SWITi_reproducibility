@@ -10,21 +10,19 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --output=/project/careamics/switi/hpc_outputs/switi_gradient_test/output_%j.log
 #SBATCH --mem=64GB
-#SBATCH --array=0
+#SBATCH --array=0-2
 
-DSET_LIST=(CBG_Z18 HT_LIF24 PaviaATN)
-TILE_SIZE_LIST=("5 64 64" "64 64" "64 64")
-OVERLAP_LIST=("2 32 32" "32 32" "32 32")
+DATASET_LIST=(CBG_Z18 HT_LIF24 PaviaATN)
+DATA_ROOT=/project/careamics/switi/data
+PREDICTION_ROOT=/project/careamics/switi/resultslts
 
-DATASET=${DSET_LIST[$SLURM_ARRAY_TASK_ID]}
-TILE_SIZE=${TILE_SIZE_LIST[$SLURM_ARRAY_TASK_ID]}
-OVERLAP=${OVERLAP_LIST[$SLURM_ARRAY_TASK_ID]}
+DATASET=${DATASET_LIST[$SLURM_ARRAY_TASK_ID]}
 
-python scripts/run_gradient_test_on_dataset.py \
-    --dataset $DATASET \
-    --predictions_subdir predictions_MMSE64 \
-    --methods SWITi \
-    --tile_size $TILE_SIZE \
-    --overlap $OVERLAP \
-    --strip_width 1 \
-    --output_root /project/careamics/switi/results/$DATASET/predictions_MMSE64/gradient_test/strip_width=1/
+uv run python scripts/run_gradient_test_on_dataset.py \
+    --dataset "$DATASET" \
+    --prediction-root "$PREDICTION_ROOT" \
+    --data-root "$DATA_ROOT" \
+    --prediction-subdir predictions_MMSE64 \
+    --methods inner_tiling SWITi \
+    --strip-width 1 \
+    --output-dir "$PREDICTION_ROOT"

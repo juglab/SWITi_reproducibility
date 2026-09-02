@@ -25,25 +25,38 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--pred_root",
-        type=Path,
-        default=Path("/project/careamics/switi/results"),
-        help="Root holding {method}/predictions.npz.",
-    )
-    p.add_argument(
-        "--data_root",
-        type=Path,
-        default=Path("/project/careamics/switi/data"),
-        help="Root holding targets/test/{image}.tif ground truths.",
-    )
-    p.add_argument(
-        "--grad_test_dir",
+        "--dataset",
         required=True,
-        type=Path,
-        help="Directory that contains results from running the gradient test script.",
+        help="dataset name used to find ground-truth data",
     )
     p.add_argument(
-        "--img_name",
+        "--prediction-root",
+        type=Path,
+        required=True,
+        help="Root holding {dataset}/{prediction_subdir}/{method}/predictions.npz.",
+    )
+    p.add_argument(
+        "--prediction-subdir",
+        default="predictions_MMSE64",
+        help="Predictions folder under the dataset (e.g. predictions_MMSE64).",
+    )
+    p.add_argument(
+        "--data-root",
+        type=Path,
+        required=True,
+        help="Root holding {dataset}/{inputs,targets}/{train,val,test}.",
+    )
+    p.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("results/gradient_test"),
+        help=(
+            "Root where gradient test outputs are written; figures are saved under "
+            "{output_dir}/{dataset}/{prediction_subdir}/gradient_test."
+        ),
+    )
+    p.add_argument(
+        "--image-name",
         required=True,
         type=str,
         help="Name of the input image to plot the figures for (file name stem).",
@@ -164,22 +177,32 @@ def read_tile_size_and_overlap(
 def main():
     args = parse_args()
 
-    tile_size, overlap = read_tile_size_and_overlap(args.pred_root)
-    summary_df = pd.read_csv(args.grad_test_dir / "summary.csv")
+    prediction_dir = args.prediction_root / args.dataset / args.prediction_subdir
+    data_dir = args.data_root / args.dataset
+    gradient_test_dir = (
+        args.output_dir / args.dataset / args.prediction_subdir / "gradient_test"
+    )
+
+    tile_size, overlap = read_tile_size_and_overlap(prediction_dir)
+    summary_df = pd.read_csv(gradient_test_dir / "summary.csv")
     method_channel = summary_df[["method_name", "channel"]]
     for _, (method, channel) in method_channel.iterrows():
+        print(
+            f"Creating figure for method={method}, image={args.image_name}, "
+            f"channel={channel}"
+        )
         fig = plot_figure(
             method=method,
-            img_name=args.img_name,
-            pred_root=args.pred_root,
-            data_root=args.data_root,
-            grad_test_dir=args.grad_test_dir,
+            img_name=args.image_name,
+            pred_root=prediction_dir,
+            data_root=data_dir,
+            grad_test_dir=gradient_test_dir,
             channel=channel,
             tile_size=tile_size,
             overlap=overlap,
         )
         fig.savefig(
-            args.grad_test_dir / f"significance_overlay_{method}_channel{channel}.png",
+            gradient_test_dir / f"significance_overlay_{method}_channel{channel}.png",
             dpi=300,
             bbox_inches="tight",
         )

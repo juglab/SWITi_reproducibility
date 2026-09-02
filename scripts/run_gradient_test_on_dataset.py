@@ -5,39 +5,38 @@ Experimental driver, argparse-based so it can be launched from a SLURM job.
 Data layout (see ``playground.ipynb``): for a dataset ``D`` each method stores a
 single ``predictions.npz`` whose keys are image names and whose arrays squeeze to
 channel-first ``(C, H, W)`` (2-D) or ``(C, D, H, W)`` (3-D) — the spatial
-dimensionality is inferred from the number of ``--tile_size`` entries; the
+dimensionality is inferred from the number of ``--tile-size`` entries; the
 matching ground truth lives at ``{data_root}/{D}/targets/test/{image_name}.tif``.
 Images within a dataset may differ in size, so we test them one at a time
 (``N=1``) and merge the per-image reports into one :class:`MethodReport` per
 method.
 
-Outputs (under ``{output_root}/{dataset}``):
+Outputs (under ``{output_dir}``):
 - ``{method}_gradient_report.json`` — the full per-method report (nested
   image -> channel -> tiles), loadable via ``MethodReport.load``.
 - ``summary.csv`` — one row per (method, image, channel) from ``to_records()``.
 
 Example::
 
-    python scripts/run_gradient_test_on_dataset.py \\
-        --dataset PaviaATN --predictions_subdir predictions_MMSE64 \\
-        --tile_size 64,64 --overlap 32,32 --statistic js
+    uv run python scripts/run_gradient_test_on_dataset.py \\
+        --dataset PaviaATN --prediction-root /path/to/results \\
+        --data-root /path/to/data --prediction-subdir predictions_MMSE64 \\
+        --tile-size 64 64 --overlap 32 32 --statistic js
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Iterator
 from pathlib import Path
-import json
 
 import numpy as np
 import pandas as pd
 import tifffile as tiff
-
 from tilartmetrics.config import GradientTestConfig
 from tilartmetrics.gradient_test.aggregation import MethodReport
 from tilartmetrics.gradient_test.analysis import run_gradient_analysis_dataset
-
 
 METHODS_TO_SUBDIR = {
     "inner_tiling": "inner_tiling",
@@ -54,19 +53,27 @@ def parse_args() -> argparse.Namespace:
     # Data location.
     p.add_argument("--dataset", required=True, help="Dataset name, e.g. PaviaATN.")
     p.add_argument(
-        "--results_root",
-        type=Path,
-        default=Path("/project/careamics/switi/results"),
-        help="Root holding {dataset}/{predictions_subdir}/{method}/predictions.npz.",
+        "--prediction-dataset",
+        default=None,
+        help=(
+            "dataset folder under --prediction-root when it differs from --dataset "
+            "(useful for precomputed legacy result directories)"
+        ),
     )
     p.add_argument(
-        "--data_root",
+        "--prediction-root",
         type=Path,
-        default=Path("/project/careamics/switi/data"),
+        required=True,
+        help="Root holding {dataset}/{prediction_subdir}/{method}/predictions.npz.",
+    )
+    p.add_argument(
+        "--data-root",
+        type=Path,
+        default=None,
         help="Root holding {dataset}/targets/test/{image}.tif ground truths.",
     )
     p.add_argument(
-        "--predictions_subdir",
+        "--prediction-subdir",
         default="predictions_MMSE64",
         help="Predictions folder under the dataset (e.g. predictions_MMSE64).",
     )
@@ -79,7 +86,7 @@ def parse_args() -> argparse.Namespace:
         help="Space-separated list of method names.",
     )
     p.add_argument(
-        "--no_gt",
+        "--no-gt",
         dest="include_gt",
         action="store_false",
         default=True,
@@ -87,7 +94,7 @@ def parse_args() -> argparse.Namespace:
     )
     # Gradient-test geometry / parameters.
     p.add_argument(
-        "--tile_size",
+        "--tile-size",
         type=int,
         nargs="+",
         default=None,
@@ -121,38 +128,46 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--alpha", type=float, default=0.05, help="Rejection threshold.")
     p.add_argument(
-        "--n_permutations", type=int, default=1000, help="Permutations per tile."
+        "--n-permutations",
+        type=int,
+        default=1000,
+        help="Permutations per tile.",
     )
-    p.add_argument("--random_seed", type=int, default=0, help="RNG seed.")
     p.add_argument(
-        "--strip_width",
+        "--random-seed",
+        type=int,
+        default=0,
+        help="RNG seed.",
+    )
+    p.add_argument(
+        "--strip-width",
         type=int,
         default=4,
         help="Half-width N of the control strip around each seam.",
     )
     p.add_argument(
-        "--block_size",
+        "--block-size",
         type=int,
         default=3,
         help="Contiguous-block size B for the permutation engine.",
     )
     p.add_argument(
-        "--num_bins_per_tile",
+        "--num-bins-per-tile",
         type=int,
         default=32,
         help="Histogram bins for binned statistics (KL, JS).",
     )
     p.add_argument(
-        "--max_images",
+        "--max-images",
         type=int,
         default=None,
         help="Cap images per method for quick trials (default: all).",
     )
     p.add_argument(
-        "--output_root",
+        "--output-dir",
         type=Path,
         default=Path("results/gradient_test"),
-        help="Reports + summary.csv are written under {output_root}/{dataset}.",
+        help="Reports + summary.csv are written under {output_dir}/{dataset}/{prediction_subdir}/gradient_test.",
     )
     return p.parse_args()
 
@@ -271,9 +286,10 @@ def read_tile_size_and_overlap(
 
 def main() -> None:
     args = parse_args()
-    out_dir = args.output_root
+    out_dir = args.output_dir / args.dataset / args.prediction_subdir / "gradient_test"
     out_dir.mkdir(parents=True, exist_ok=True)
-    pred_root = args.results_root / args.dataset / args.predictions_subdir
+    prediction_dataset = args.prediction_dataset or args.dataset
+    pred_root = args.prediction_root / prediction_dataset / args.prediction_subdir
 
     tile_size, overlap = read_tile_size_and_overlap(
         pred_root, args.tile_size, args.overlap
@@ -320,6 +336,8 @@ def main() -> None:
         for name in args.methods
     ]
     if args.include_gt:
+        if args.data_root is None:
+            raise ValueError("--data-root is required unless --no-gt is passed")
         target_dir = args.data_root / args.dataset / "targets" / "test"
         sources.append(("GT", iter_gt_images(target_dir, image_names, n_spatial)))
 

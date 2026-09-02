@@ -9,17 +9,21 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --output=/project/careamics/switi/hpc_outputs/switi_frc/output_%j.log
 #SBATCH --mem=64GB
-#SBATCH --array=0-3
+#SBATCH --array=0-2
 
-DSET_LIST=(CBG_Z18 HT_LIF24 PaviaATN)
+DATASET_LIST=(CBG_Z18 HT_LIF24 PaviaATN)
 NDIM_LIST=(3 2 2)
+DATA_ROOT=/project/careamics/switi/data
+PREDICTION_ROOT=/project/careamics/switi/results
 
-DATASET=${DSET_LIST[$SLURM_ARRAY_TASK_ID]}
+DATASET=${DATASET_LIST[$SLURM_ARRAY_TASK_ID]}
 NDIM=${NDIM_LIST[$SLURM_ARRAY_TASK_ID]}
 
-python scripts/run_frc_analysis_on_dataset.py \
-    --dataset $DATASET \
-    --predictions_subdir predictions_MMSE64 \
+uv run python scripts/run_frc_analysis_on_dataset.py \
+    --dataset "$DATASET" \
+    --prediction-root "$PREDICTION_ROOT" \
+    --data-root "$DATA_ROOT" \
+    --prediction-subdir predictions_MMSE64 \
     --methods inner_tiling SWITi \
-    --ndim $NDIM \
-    --output_root /project/careamics/switi/results/$DATASET/predictions_MMSE64/frc/
+    --ndim "$NDIM" \
+    --output-dir "$PREDICTION_ROOT"

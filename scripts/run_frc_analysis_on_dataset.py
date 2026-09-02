@@ -13,7 +13,7 @@ scored per z-slice, each z-plane contributing an extra image ``{name}_z{d:03d}``
 Data layout (see ``playground.ipynb``): for a dataset ``D`` each method stores a
 single ``predictions.npz`` whose keys are image names and whose arrays squeeze to
 channel-first ``(C, H, W)`` (2-D) or ``(C, D, H, W)`` (3-D); the matching ground
-truth lives at ``{data_dir}/{D}/targets/test/{image_name}.tif``. All images of a
+truth lives at ``{data_root}/{D}/targets/test/{image_name}.tif``. All images of a
 dataset must share the same spatial size — FRC pools a per-bin mean curve + 95%
 CI across images, which requires a common frequency grid (a clear error is raised
 otherwise).
@@ -27,8 +27,9 @@ Outputs (under ``{output_dir}``):
 
 Example::
 
-    python scripts/run_frc_analysis_on_dataset.py \\
-        --dataset PaviaATN --predictions_subdir predictions_MMSE64 \\
+    uv run python scripts/run_frc_analysis_on_dataset.py \\
+        --dataset PaviaATN --prediction-root /path/to/results \\
+        --data-root /path/to/data --prediction-subdir predictions_MMSE64 \\
         --methods inner_tiling SWITi
 """
 
@@ -45,11 +46,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tifffile as tiff
-
 from tilartmetrics.frc.aggregation import FRCMethodReport
 from tilartmetrics.frc.analysis import run_frc_analysis_dataset
 from tilartmetrics.frc.plotting import plot_frc_curves, shared_ylim
-
 
 METHODS_TO_SUBDIR = {
     "inner_tiling": "inner_tiling",
@@ -66,19 +65,27 @@ def parse_args() -> argparse.Namespace:
     # Data location.
     p.add_argument("--dataset", required=True, help="Dataset name, e.g. PaviaATN.")
     p.add_argument(
-        "--preds_dir",
-        type=Path,
-        default=Path("/project/careamics/switi/results"),
-        help="Root holding {dataset}/{predictions_subdir}/{method}/predictions.npz.",
+        "--prediction-dataset",
+        default=None,
+        help=(
+            "dataset folder under --prediction-root when it differs from --dataset "
+            "(useful for precomputed legacy result directories)"
+        ),
     )
     p.add_argument(
-        "--data_dir",
+        "--prediction-root",
         type=Path,
-        default=Path("/project/careamics/switi/data"),
+        required=True,
+        help="Root holding {dataset}/{prediction_subdir}/{method}/predictions.npz.",
+    )
+    p.add_argument(
+        "--data-root",
+        type=Path,
+        required=True,
         help="Root holding {dataset}/targets/test/{image}.tif ground truths.",
     )
     p.add_argument(
-        "--predictions_subdir",
+        "--prediction-subdir",
         default="predictions_MMSE64",
         help="Predictions folder under the dataset (e.g. predictions_MMSE64).",
     )
@@ -94,7 +101,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ndim",
         required=True,
-        type=int, 
+        type=int,
         choices=[2, 3],
         help="Spatial dimensionality; 3-D volumes are scored per z-slice.",
     )
@@ -119,16 +126,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     p.add_argument(
-        "--max_images",
+        "--max-images",
         type=int,
         default=None,
         help="Cap images per method for quick trials (default: all).",
     )
     p.add_argument(
-        "--output_dir",
+        "--output-dir",
         type=Path,
-        default=Path("results/frc"),
-        help="Reports + summary.csv are written under {output_dir}.",
+        required=True,
+        help="Reports + summary.csv are written under {output_dir}/{dataset}/{prediction_subdir}/frc.",
     )
     return p.parse_args()
 
@@ -236,10 +243,11 @@ def iter_frc_pairs(
 
 def main() -> None:
     args = parse_args()
-    out_dir = args.output_dir
+    out_dir = args.output_dir / args.dataset / args.prediction_subdir / "frc"
     out_dir.mkdir(parents=True, exist_ok=True)
-    pred_dir = args.preds_dir / args.dataset / args.predictions_subdir
-    target_dir = args.data_dir / args.dataset / "targets" / "test"
+    prediction_dataset = args.prediction_dataset or args.dataset
+    pred_dir = args.prediction_root / prediction_dataset / args.prediction_subdir
+    target_dir = args.data_root / args.dataset / "targets" / "test"
 
     # Validate up-front so a bad value fails before the expensive FRC sweep.
     steps = parse_steps(args.step, args.methods)

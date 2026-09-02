@@ -9,26 +9,30 @@ alongside an ``inference_params.json`` recording the run configuration:
     {"tile_size": [...], "overlap": [...], "mmse_count": N,
      "ckpt_path": "...", "data_dir": "..."}
 
-This script reads that JSON to locate the GT (``<data_dir>/targets/<split>/``) and
-to fill the provenance fields of the metric logs, loads the matching target TIFFs,
+This script uses ``--data-root`` and ``--dataset`` to locate the GT
+(``<data-root>/<dataset>/targets/<split>/``), and reads the prediction sidecar
+to fill provenance fields of the metric logs. It loads the matching target TIFFs
 and computes channel-wise global metrics (PSNR, LPIPS, MS-SSIM, MicroMS3IM,
 Pearson) via :func:`scripts.metrics_utils.compute_unmixing_metrics`. Results are
 written next to the predictions as ``metrics.json`` (dataset averages) and
 ``metrics_per_image.json``. Whether the data is 3D is inferred from
-``len(tile_size)`` (3 → 3D, 2 → 2D), so no pkl config is loaded.
+``len(tile_size)`` (3 -> 3D, 2 -> 2D), so no pkl config is loaded.
 
-Prediction ↔ GT matching is positional: ``inputs/<split>`` and ``targets/<split>``
+Prediction <-> GT matching is positional: ``inputs/<split>`` and ``targets/<split>``
 are both sorted (see :func:`scripts.io.list_files`), and predictions are keyed by
 the input stem, so prediction ``i`` pairs with target file ``i``. When a file holds
 several frames (``S > 1``) each frame is scored as a separate image.
 
-Run from the repo root (``--pred-dir`` holds ``predictions.npz`` +
-``inference_params.json``):
+Run from the repo root:
 
-    python -m scripts.microsplit_compute_metrics \\
-        --pred-dir /project/careamics/switi/results/HT_LIF24_5ms/predictions_MMSE64/sw_inner_tiling
-    python -m scripts.microsplit_compute_metrics \\
-        --pred-dir /project/careamics/switi/results/CARE3D_liver/predictions_MMSE64/inner_tiling \\
+    uv run python scripts/microsplit_compute_metrics.py \\
+        --dataset HT_LIF24 --prediction-root /path/to/results \\
+        --data-root /path/to/data --prediction-subdir predictions_MMSE64 \\
+        --method SWITi
+    uv run python scripts/microsplit_compute_metrics.py \\
+        --dataset CBG_Z18 --prediction-dataset CARE3D_zebrafish \\
+        --prediction-root /path/to/results --data-root /path/to/data \\
+        --prediction-subdir predictions_MMSE64 --method inner_tiling \\
         --metrics PSNR MSSIM Pearson
 """
 
@@ -40,10 +44,14 @@ from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
-
 from utils.io_utils import list_files
 from utils.metrics_utils import compute_unmixing_metrics, log_metrics
 from utils.stats import _load_canonical
+
+METHODS_TO_SUBDIR = {
+    "inner_tiling": "inner_tiling",
+    "SWITi": "sw_inner_tiling",
+}
 
 
 def _ensure_canonical(arr: NDArray, *, is_3d: bool) -> NDArray:
@@ -150,7 +158,12 @@ def main(args: argparse.Namespace) -> Path:
 
     Returns the directory where the metric JSONs were written.
     """
-    pred_dir = args.pred_dir
+    pred_dir = (
+        args.prediction_root
+        / args.dataset
+        / args.prediction_subdir
+        / METHODS_TO_SUBDIR[args.method]
+    )
     predictions_path = pred_dir / args.predictions_filename
     params_path = pred_dir / args.params_filename
     if not predictions_path.is_file():
@@ -161,7 +174,7 @@ def main(args: argparse.Namespace) -> Path:
     params = json.loads(params_path.read_text())
     tile_size = params["tile_size"]
     is_3d = len(tile_size) == 3  # [Z, Y, X] -> 3D, [Y, X] -> 2D
-    data_dir = Path(params["data_dir"])
+    data_dir = args.data_root / args.dataset
 
     print(f"Loading predictions from {predictions_path}")
     print(f"Loading GT targets from  {data_dir / 'targets' / args.split}")
@@ -205,12 +218,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--pred-dir",
+        "--dataset",
+        required=True,
+        help="dataset name used to find ground-truth data",
+    )
+    p.add_argument(
+        "--prediction-root",
         required=True,
         type=Path,
-        help="prediction directory holding predictions.npz and "
-        "inference_params.json (e.g. "
-        "<results>/<dataset>/predictions_MMSE64/inner_tiling)",
+        help="root holding {dataset}/{prediction-subdir}/{method}/predictions.npz",
+    )
+    p.add_argument(
+        "--prediction-subdir",
+        default="predictions_MMSE64",
+        help="prediction folder under the dataset (e.g. predictions_MMSE64)",
+    )
+    p.add_argument(
+        "--method",
+        required=True,
+        choices=["inner_tiling", "SWITi"],
+        help="prediction method to score",
+    )
+    p.add_argument(
+        "--data-root",
+        type=Path,
+        required=True,
+        help=(
+            "root holding {dataset}/{inputs,targets}/{train,val,test}"
+        ),
     )
     p.add_argument(
         "--split",

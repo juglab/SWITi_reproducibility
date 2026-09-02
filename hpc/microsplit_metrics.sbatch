@@ -10,30 +10,30 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --output=/project/careamics/switi/hpc_outputs/switi_metrics/output_%j.log
 #SBATCH --mem=64GB
-#SBATCH --array=0-4
+#SBATCH --array=0-2
 
 # Compute global metrics (PSNR, LPIPS, MS-SSIM, MicroMS3IM, Pearson) on the
 # stitched predictions produced by the inference jobs. Each array task handles
 # one dataset and scores both tiling variants. Run configuration (data dir,
 # tile size, overlap, mmse count, ckpt) is read from each prediction dir's
-# `inference_params.json`, so no per-dataset CLI args are needed here. A GPU is
-# requested to accelerate LPIPS.
+# `inference_params.json`, while --data-root points to the renamed Zenodo dataset
+# directories. A GPU is requested to accelerate LPIPS.
 
-DSET_LIST=(CBG_Z18 HT_LIF24 PaviaATN)
-DATASET=${DSET_LIST[$SLURM_ARRAY_TASK_ID]}
-
-RESULTS_ROOT=/project/careamics/switi/results
+DATA_ROOT=/project/careamics/switi/data
+CHECKPOINT_ROOT=/project/careamics/switi/ckpts
+PREDICTION_ROOT=/project/careamics/switi/results
 MMSE_COUNT=64
-TILING_LIST=(inner_tiling sw_inner_tiling)
+METHOD_LIST=(inner_tiling SWITi)
 
-for TILING in "${TILING_LIST[@]}"; do
-    PRED_DIR="$RESULTS_ROOT/$DATASET/predictions_MMSE$MMSE_COUNT/$TILING"
-    if [[ ! -f "$PRED_DIR/predictions.npz" || ! -f "$PRED_DIR/inference_params.json" ]]; then
-        echo "[skip] $PRED_DIR (missing predictions.npz or inference_params.json)"
-        continue
-    fi
-    echo "[run] computing metrics for $PRED_DIR"
-    python -u -m scripts.microsplit_compute_metrics \
-        --pred-dir "$PRED_DIR" \
+DATASET=${DATASET_LIST[$SLURM_ARRAY_TASK_ID]}
+
+for METHOD in "${METHOD_LIST[@]}"; do
+    uv run python -u scripts/microsplit_compute_metrics.py \
+        --dataset "$DATASET" \
+        --prediction-dataset "$DATASET" \
+        --prediction-root "$PREDICTION_ROOT" \
+        --prediction-subdir "predictions_MMSE$MMSE_COUNT" \
+        --method "$METHOD" \
+        --data-root "$DATA_ROOT" \
         --split test
 done
