@@ -10,6 +10,8 @@ dependencies = [
     "tilartmetrics",
 ]
 
+tool.uv.package = false
+
 [tool.uv.sources]
 careamics = { git = "https://github.com/CAREamics/careamics.git", rev = "mc/feat/switi-merge" }
 tilartmetrics = { git = "https://github.com/juglab/TilArtMetrics.git" }
