@@ -181,7 +181,7 @@ switi/
 
 ## HPC Scripts
 
-The `hpc` directory contains SLURM wrappers for the same workflow:
+The `hpc` directory contains SLURM wrappers for the same workflow, which contain the arguments used to run the experiments:
 
 ```text
 hpc/microsplit_inner_tiling.sbatch
