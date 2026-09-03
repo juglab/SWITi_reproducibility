@@ -1,3 +1,5 @@
+"""Download the example SWITi data and checkpoints from Zenodo."""
+
 import argparse
 from pathlib import Path
 
@@ -5,6 +7,13 @@ import pooch
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments.
+    """
     p = argparse.ArgumentParser(
         description="Download data and checkpoints used in the SWITi paper."
     )
@@ -18,6 +27,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def main():
+    """Download and extract data and checkpoints.
+
+    Files are written under the directory selected by `--output-dir`.
+    """
     args = parse_args()
 
     _ = pooch.retrieve(

@@ -1,3 +1,5 @@
+"""Shared plotting helpers for SWITi analysis figures."""
+
 from contextlib import contextmanager
 from enum import Enum
 from typing import Generator, Literal, Optional, Sequence, Union
@@ -23,14 +25,14 @@ def _set_font(
 ) -> Generator[None, None, None]:
     """Context manager that temporarily sets the matplotlib font family.
 
-    On exit the previous ``rcParams`` are restored, so this is safe to use
+    On exit the previous `rcParams` are restored, so this is safe to use
     inside any plotting function without leaking state.
 
     Parameters
     ----------
     font_family : Optional[str]
-        Font family name to use (e.g. ``"LMRoman10"``, ``"serif"``,
-        ``"DejaVu Sans"``).  If ``None`` the current default is kept.
+        Font family name to use (e.g. `"LMRoman10"`, `"serif"`,
+        `"DejaVu Sans"`).  If `None` the current default is kept.
 
     Examples
     --------
@@ -67,14 +69,14 @@ def _get_theme_colors(
     Parameters
     ----------
     mode : Literal["black", "white"]
-        ``"black"`` — dark background, orange accent, white text.
-        ``"white"`` — light background, blue accent, black text.
+        `"black"` - dark background, orange accent, white text.
+        `"white"` - light background, blue accent, black text.
 
     Returns
     -------
     dict[str, str]
-        Keys: ``"bg"``, ``"text"``, ``"accent"``, ``"patch"``,
-        ``"spine"``, ``"snr_box"``.
+        Keys: `"bg"`, `"text"`, `"accent"`, `"patch"`,
+        `"spine"`, `"snr_box"`.
     """
     if mode == "black":
         return {
@@ -99,7 +101,7 @@ def _get_theme_colors(
 
 
 class ColormapRepo(Enum):
-    """Enum for colormaps used in the visualization."""
+    """Available colormaps for analysis figures."""
     CYAN = "cmap:cyan"
     GREEN = "cmap:green"
     YELLOW = "cmap:yellow"
@@ -113,7 +115,7 @@ class ColormapRepo(Enum):
 
 
 class ColorRepo(Enum):
-    """Enum for colors used in the visualization."""
+    """Available colors for analysis figures."""
     CYAN = "cyan"
     GREEN = "limegreen"
     YELLOW = "gold"
@@ -139,10 +141,10 @@ def _create_custom_diverging_cmap(
     """Create a diverging colormap centered at black, ramping up to user-defined
     positive and negative colors.
 
-    The colormap maps ``midvalue`` to black, values above it ramp to
-    ``pos_color``, and values below ramp to ``neg_color``.  By default
+    The colormap maps `midvalue` to black, values above it ramp to
+    `pos_color`, and values below ramp to `neg_color`.  By default
     normalization is symmetric (both halves span the same absolute distance
-    from ``midvalue``); pass an explicit ``vmin`` to make it asymmetric.
+    from `midvalue`); pass an explicit `vmin` to make it asymmetric.
 
     Parameters
     ----------
@@ -152,12 +154,12 @@ def _create_custom_diverging_cmap(
         Color for the negative side of the colormap.
     midvalue : float, optional
         Data value mapped to black (the center of the diverging colormap).
-        Default is ``0.0``.
+        Default is `0.0`.
     vmax : float, optional
-        Maximum data value. If ``None``, no explicit bounds are set.
+        Maximum data value. If `None`, no explicit bounds are set.
     vmin : float, optional
-        Minimum data value. If ``None`` (and ``vmax`` is given), derived
-        symmetrically as ``2 * midvalue - vmax``. Providing an explicit value
+        Minimum data value. If `None` (and `vmax` is given), derived
+        symmetrically as `2 * midvalue - vmax`. Providing an explicit value
         enables asymmetric normalization.
     resolution : int, optional
         Number of colors in the colormap, by default 512.
@@ -217,29 +219,29 @@ def _get_multichannel_cmap(
         Number of channels.
     cmaps : Optional[Union[ColormapRepo, Sequence[ColormapRepo]]]
         Explicit colormap(s) to use. A single entry is broadcast to all channels.
-        If provided, overrides ``diverging_cmaps`` and ``multicolor_cmaps``.
+        If provided, overrides `diverging_cmaps` and `multicolor_cmaps`.
     multicolor_cmaps : bool
-        If ``cmaps`` is not given, cycle through pre-defined colormaps from
-        ``ColormapRepo`` (one distinct color per channel). When ``False`` and
-        ``diverging_cmaps`` is also ``False``, grayscale (``"Greys_r"``) is used
-        for all channels. Default is ``True``.
+        If `cmaps` is not given, cycle through pre-defined colormaps from
+        `ColormapRepo` (one distinct color per channel). When `False` and
+        `diverging_cmaps` is also `False`, grayscale (`"Greys_r"`) is used
+        for all channels. Default is `True`.
     diverging_cmaps : bool
         Build diverging colormaps (black at each channel's midvalue, negative side
-        in red). Positive colors are chosen by priority: ``diverging_colors`` >
-        ``multicolor_cmaps`` > grayscale. Default is ``False``.
+        in red). Positive colors are chosen by priority: `diverging_colors` >
+        `multicolor_cmaps` > grayscale. Default is `False`.
     diverging_colors : Optional[Sequence[ColorRepo]]
         Explicit positive colors for diverging colormaps. Takes full priority over
-        ``multicolor_cmaps`` when set. Ignored if ``diverging_cmaps=False``.
+        `multicolor_cmaps` when set. Ignored if `diverging_cmaps=False`.
     vmaxs : Optional[Sequence[float]]
         Per-channel maximum values for diverging normalization. Ignored when
-        ``diverging_cmaps=False``.
+        `diverging_cmaps=False`.
     vmins : Optional[Sequence[float]]
-        Per-channel minimum values for diverging normalization. When ``None``
-        (default), ``vmin`` is derived symmetrically from ``vmax``. Providing
+        Per-channel minimum values for diverging normalization. When `None`
+        (default), `vmin` is derived symmetrically from `vmax`. Providing
         explicit values enables asymmetric normalization.
     midvalues : Optional[Sequence[float]]
         Per-channel data values mapped to black in diverging colormaps.
-        Defaults to ``0.0`` for each channel when ``None``.
+        Defaults to `0.0` for each channel when `None`.
     """
     if cmaps is not None:
         if isinstance(cmaps, ColormapRepo):
@@ -289,7 +291,24 @@ def _crop_image(
     x_lims: Optional[tuple[int, int]] = None,
     y_lims: Optional[tuple[int, int]] = None
 ) -> NDArray:
-    """Crop an image according to the given slice information."""
+    """Return a cropped image.
+
+    Parameters
+    ----------
+    img : NDArray
+        Image with a leading channel axis.
+    z_idx : int, optional
+        Z index to select for 3D images.
+    x_lims : tuple of int, optional
+        X-axis crop limits as `(start, stop)`.
+    y_lims : tuple of int, optional
+        Y-axis crop limits as `(start, stop)`.
+
+    Returns
+    -------
+    NDArray
+        Cropped image.
+    """
     if z_idx is not None:
         img = img[:, z_idx, ...]
     if y_lims is not None:
@@ -309,10 +328,10 @@ def _derive_vmaxs(
     Parameters
     ----------
     img : NDArray
-        Multichannel image of shape ``(C, ...)``.
+        Multichannel image of shape `(C, ...)`.
     contrast_lims : Optional[Sequence[Optional[tuple[float, float]]]]
-        Per-channel contrast limits ``(vmin, vmax)``. A ``None`` entry falls back
-        to the channel's image maximum. If the whole argument is ``None``, image
+        Per-channel contrast limits `(vmin, vmax)`. A `None` entry falls back
+        to the channel's image maximum. If the whole argument is `None`, image
         maxima are used for every channel.
 
     Returns
@@ -339,10 +358,10 @@ def _derive_vmins(
     Parameters
     ----------
     img : NDArray
-        Multichannel image of shape ``(C, ...)``.
+        Multichannel image of shape `(C, ...)`.
     contrast_lims : Optional[Sequence[Optional[tuple[float, float]]]]
-        Per-channel contrast limits ``(vmin, vmax)``. A ``None`` entry falls back
-        to the channel's image minimum. If the whole argument is ``None``, image
+        Per-channel contrast limits `(vmin, vmax)`. A `None` entry falls back
+        to the channel's image minimum. If the whole argument is `None`, image
         minima are used for every channel.
 
     Returns
@@ -364,9 +383,26 @@ def _parse_metrics(
     metrics_avg: dict[str, dict[str, float]],
     metrics_per_img: dict[str, dict[str, dict[str, float]]],
     ch_idx: int,
-    img_fname: str
-) -> dict[str, float]:
-    """Parse metrics as a string."""
+    img_fname: str,
+) -> str:
+    """Return formatted metric text for one image channel.
+
+    Parameters
+    ----------
+    metrics_avg : dict[str, dict[str, float]]
+        Dataset-average metrics.
+    metrics_per_img : dict[str, dict[str, dict[str, float]]]
+        Per-image metrics.
+    ch_idx : int
+        Channel index.
+    img_fname : str
+        Image filename key.
+
+    Returns
+    -------
+    str
+        Multiline metric summary.
+    """
     # get average metrics
     avg_metrics = {}
     avg_metrics["PSNR"] = metrics_avg["PSNR"][f"RI-PSNR_FP#{ch_idx+1}"]
@@ -386,7 +422,17 @@ def _parse_metrics(
 
 
 def _add_colorbar(img: torch.Tensor, fig: Figure, ax: Axes) -> None:
-    """Add colorbar to a `matplotlib` image."""
+    """Add a colorbar beside an image axis.
+
+    Parameters
+    ----------
+    img : torch.Tensor
+        Matplotlib image object returned by `imshow`.
+    fig : Figure
+        Figure containing the axis.
+    ax : Axes
+        Axis containing the image.
+    """
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="3%", pad=0.05)
     cbar = fig.colorbar(img, cax=cax)
@@ -401,7 +447,24 @@ def _get_histogram_lims(
     tol: int = 10,
     margin: int = 5,
 ) -> tuple[float, float]:
-    """Get delimiters for image intensity to focus histogram on positive values."""
+    """Return intensity limits for histogram display.
+
+    Parameters
+    ----------
+    img : NDArray
+        Image values used to build the histogram.
+    n_bins : int, default=200
+        Number of histogram bins.
+    tol : int, default=10
+        Minimum bin count considered populated.
+    margin : int, default=5
+        Number of bins to extend beyond populated limits.
+
+    Returns
+    -------
+    tuple of float
+        Lower and upper intensity limits.
+    """
     # build histogram of values
     img_range = (img.min(), img.max()) 
     hist, bins = np.histogram(img.ravel(), bins=n_bins, range=img_range)
@@ -423,8 +486,21 @@ def _add_intensity_histogram(
     img: NDArray,
     color: str = "orange",
     size: int = 30
-) -> Axes:
-    """Add a small histogram in the bottom-left corner of an axis."""
+) -> None:
+    """Add an inset intensity histogram to an image axis.
+
+    Parameters
+    ----------
+    ax : Axes
+        Axis containing the image.
+    img : NDArray
+        Image values to summarize.
+    color : str, default="orange"
+        Histogram line color.
+    size : int, default=30
+        Inset size as a percentage of the parent axis.
+
+    """
     # Create inset axis
     inset_ax = inset_axes(ax, width=f"{size}%", height=f"{size}%", loc="lower left", borderpad=1)
     inset_ax.patch.set_alpha(0)
@@ -466,7 +542,7 @@ def _add_corner_text(
     text : str
         String to display.
     loc : Literal["topleft", "topright"]
-        Corner in which to place the text. Default is ``"topleft"``.
+        Corner in which to place the text. Default is `"topleft"`.
     fontsize : int
         Font size. Default is 16.
     """
@@ -494,6 +570,33 @@ def _add_channel_image(
     text: Optional[str] = None,
     text_loc: Literal["topleft", "topright"] = "topleft",
 ) -> None:
+    """Draw a single-channel image on an axis.
+
+    Parameters
+    ----------
+    img : NDArray
+        Single-channel image to display.
+    ax : Axes
+        Axis on which to draw the image.
+    fig : Figure
+        Figure containing the axis.
+    cmap : Colormap
+        Colormap used for the image.
+    norm : mcolors.TwoSlopeNorm, optional
+        Normalization used for diverging colormaps.
+    title : str, optional
+        Label drawn beside the image.
+    vlims : tuple of float, optional
+        Minimum and maximum display intensity.
+    add_colorbar : bool, default=False
+        Whether to add a colorbar.
+    add_histogram : bool, default=True
+        Whether to add an inset intensity histogram.
+    text : str, optional
+        Corner annotation text.
+    text_loc : {"topleft", "topright"}, default="topleft"
+        Corner used for annotation text.
+    """
     if title:
         ax.text(
             -0.02, 0.5, title,
@@ -520,7 +623,21 @@ def _add_metrics_info(
     ch_idx: int,
     img_fname: Optional[str] = None
 ) -> None:
-    """Add metrics information to an axis."""
+    """Add formatted metric text to an axis.
+
+    Parameters
+    ----------
+    ax : Axes
+        Axis to annotate.
+    metrics_avg : dict[str, dict[str, float]]
+        Dataset-average metrics.
+    metrics_per_img : dict[str, dict[str, dict[str, float]]]
+        Per-image metrics.
+    ch_idx : int
+        Channel index.
+    img_fname : str, optional
+        Image filename key.
+    """
     metrics_text = _parse_metrics(metrics_avg, metrics_per_img, ch_idx, img_fname)
     ax.text(
         0.97, 0.97, metrics_text,
@@ -560,18 +677,18 @@ def _extract_line_profile(
 ) -> NDArray:
     """Extract intensity profile along a line between two points.
 
-    Uses ``skimage.measure.profile_line`` so the two points need not be
+    Uses `skimage.measure.profile_line` so the two points need not be
     axis-aligned.  The profile is averaged across *linewidth* pixels
     perpendicular to the line.
 
     Parameters
     ----------
     img : NDArray
-        2-D image array of shape ``(Y, X)``.
+        2-D image array of shape `(Y, X)`.
     point1 : tuple[int, int]
-        ``(y, x)`` coordinates of the first endpoint.
+        `(y, x)` coordinates of the first endpoint.
     point2 : tuple[int, int]
-        ``(y, x)`` coordinates of the second endpoint.
+        `(y, x)` coordinates of the second endpoint.
     linewidth : int
         Width (in pixels) over which the profile is averaged.  Default is 1.
 
@@ -602,14 +719,14 @@ def _compute_patch_snr(
     """Compute SNR of an image using a background patch.
 
     SNR is defined as
-    ``(quantile(image, q) - mean(patch)) / std(patch)``.
+    `(quantile(image, q) - mean(patch)) / std(patch)`.
 
     Parameters
     ----------
     img : NDArray
         2-D image array.
     patch_origin : tuple[int, int]
-        ``(y, x)`` top-left corner of the background patch.
+        `(y, x)` top-left corner of the background patch.
     patch_h : int
         Patch height in pixels.
     patch_w : int
@@ -620,7 +737,7 @@ def _compute_patch_snr(
     Returns
     -------
     tuple[float, NDArray]
-        ``(snr_value, patch)`` — the computed SNR and the extracted patch.
+        `(snr_value, patch)` - the computed SNR and the extracted patch.
     """
     y0, x0 = patch_origin
     patch = img[y0:y0 + patch_h, x0:x0 + patch_w]
@@ -651,13 +768,13 @@ def _overlay_line_and_patch(
     ax : Axes
         Matplotlib axis that already contains the image.
     point1 : tuple[int, int]
-        ``(y, x)`` of the first line endpoint.
+        `(y, x)` of the first line endpoint.
     point2 : tuple[int, int]
-        ``(y, x)`` of the second line endpoint.
+        `(y, x)` of the second line endpoint.
     linewidth : int
         Width of the profile band.
     patch_origin : tuple[int, int]
-        ``(y, x)`` top-left corner of the background patch.
+        `(y, x)` top-left corner of the background patch.
     patch_h : int
         Height of the background patch.
     patch_w : int
@@ -665,13 +782,13 @@ def _overlay_line_and_patch(
     snr : float
         Pre-computed SNR value to display.
     line_color : str
-        Color for the line and its band.  Default is ``"cyan"``.
+        Color for the line and its band.  Default is `"cyan"`.
     patch_color : str
-        Color for the patch rectangle.  Default is ``"red"``.
+        Color for the patch rectangle.  Default is `"red"`.
     text_color : str
-        Color for the SNR text.  Default is ``"white"``.
+        Color for the SNR text.  Default is `"white"`.
     snr_box_color : str
-        Background color of the SNR text box.  Default is ``"gray"``.
+        Background color of the SNR text box.  Default is `"gray"`.
     snr_fontsize : int
         Font size for the SNR text box.  Default is 18.
     """
@@ -740,9 +857,6 @@ def match_range(x: NDArray, y: NDArray) -> tuple[NDArray, NDArray]:
     """Rescale `x` to match the range of a standardized version of `y`.
     
     This approach is used in the computation of range/scale invariant metrics.
-    
-    This is done by scaling x by a factor `alpha` a such that the term
-    `||y - alpha*x||^2` is minimized, i.e., the LS solution.
     
     Parameters
     ----------

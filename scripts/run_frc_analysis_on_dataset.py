@@ -1,31 +1,20 @@
-"""Run the FRC metric on every image of a dataset, per method.
+"""Run FRC analysis for one dataset.
 
-Experimental driver, argparse-based so it can be launched from a SLURM job. The
-FRC counterpart of ``scripts/run_gradient_test_on_dataset.py``: same data layout,
-same method->subdir map, same report/summary outputs — swap ``gradient_test`` for
-``frc`` and you are done.
+Predictions are read from
+`<prediction-root>/<dataset>/<prediction-subdir>/<method>/predictions.npz`.
+Ground truth is read from `<data-root>/<dataset>/targets/test/`. Reports are
+written to `<output-dir>/<dataset>/<prediction-subdir>/frc/`.
 
-Unlike the gradient test, FRC is a *reference* metric: every prediction is scored
-against its matching ground truth, so the GT is mandatory (there is no seam-free
-"null" source to append). FRC is also 2-D only; a 3-D volume ``(C, D, H, W)`` is
-scored per z-slice, each z-plane contributing an extra image ``{name}_z{d:03d}``.
+FRC is a *reference* metric: every prediction is scored against its matching ground 
+truth. Predictions are matched to ground truth by the sorted input and target file
+order.
 
-Data layout (see ``playground.ipynb``): for a dataset ``D`` each method stores a
-single ``predictions.npz`` whose keys are image names and whose arrays squeeze to
-channel-first ``(C, H, W)`` (2-D) or ``(C, D, H, W)`` (3-D); the matching ground
-truth lives at ``{data_root}/{D}/targets/test/{image_name}.tif``. All images of a
-dataset must share the same spatial size — FRC pools a per-bin mean curve + 95%
-CI across images, which requires a common frequency grid (a clear error is raised
-otherwise).
+Each selected method produces a `{method}_frc_report.json` file. The script also
+writes `summary.csv` and one `frc_curves_ch{channel}.pdf` figure per analysed
+channel. For 3D data, each z-plane is scored as a separate 2D image.
 
-Outputs (under ``{output_dir}``):
-- ``{method}_frc_report.json`` — the full per-method report (nested
-  image -> channel -> FRC curve), loadable via ``FRCMethodReport.load``.
-- ``summary.csv`` — one row per (method, image, channel) from ``to_records()``.
-- ``frc_curves_c{channel}.png`` — headline figure per analysed channel: every
-  method's mean FRC curve with a shaded 95% CI band.
-
-Example::
+Example
+-------
 
     uv run python scripts/run_frc_analysis_on_dataset.py \\
         --dataset PaviaATN --prediction-root /path/to/results \\
@@ -57,7 +46,13 @@ METHODS_TO_SUBDIR = {
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """Parse command-line arguments.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments.
+    """
     p = argparse.ArgumentParser(
         description="Run the FRC metric on all images of a dataset.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -133,11 +128,24 @@ def parse_args() -> argparse.Namespace:
 
 
 def _ensure_channel_first(arr: np.ndarray, n_spatial: int) -> np.ndarray:
-    """Squeeze to channel-first ``(C, *spatial)`` for the given spatial ndim.
+    """Return an array with channel-first axes.
 
-    ``n_spatial`` is 2 for 2-D ``(C, H, W)`` or 3 for 3-D ``(C, D, H, W)``.
-    A bare spatial array with no channel axis (``(H, W)`` / ``(D, H, W)``) is
-    promoted to a single channel.
+    Parameters
+    ----------
+    arr : np.ndarray
+        Image array with optional singleton axes.
+    n_spatial : int
+        Number of spatial axes, either 2 for `(Y, X)` or 3 for `(Z, Y, X)`.
+
+    Returns
+    -------
+    np.ndarray
+        Image array with shape `(C, *spatial)`.
+
+    Raises
+    ------
+    ValueError
+        If the squeezed array cannot be interpreted as channel-first.
     """
     arr = np.asarray(arr).squeeze()
     if arr.ndim == n_spatial:
@@ -151,8 +159,20 @@ def _ensure_channel_first(arr: np.ndarray, n_spatial: int) -> np.ndarray:
 
 
 def read_image_names(npz_path: Path, max_images: int | None) -> list[str]:
-    """Return the image names in a ``predictions.npz`` (reads the archive index,
-    not the arrays); optionally capped to the first ``max_images``."""
+    """Return image names stored in a prediction archive.
+
+    Parameters
+    ----------
+    npz_path : Path
+        Path to a `predictions.npz` archive.
+    max_images : int or None
+        Maximum number of names to return. If `None`, all names are returned.
+
+    Returns
+    -------
+    list of str
+        Prediction archive keys in archive order.
+    """
     names = list(np.load(npz_path, allow_pickle=True).files)
     return names if max_images is None else names[:max_images]
 
@@ -160,12 +180,26 @@ def read_image_names(npz_path: Path, max_images: int | None) -> list[str]:
 def parse_steps(
     tokens: list[str] | None, methods: list[str]
 ) -> dict[str, int | None] | None:
-    """Map ``--step`` tokens onto ``--methods``, 1:1.
+    """Map seam-step tokens to method names.
 
-    Each token is either a positive int — the method's seam interval in pixels
-    (``tile_size - overlap`` for inner tiling, the sliding stride for SWITi) —
-    or ``"none"`` for a seam-free method. Returns ``None`` when the flag was not
-    supplied, which disables the harmonic verticals.
+    Parameters
+    ----------
+    tokens : list of str or None
+        Step values from `--step`. Use positive integer strings for methods with
+        seams and `none` for seam-free methods.
+    methods : list of str
+        Method names from `--methods`.
+
+    Returns
+    -------
+    dict of str to int or None, or None
+        Per-method seam steps, or `None` when no steps were supplied.
+
+    Raises
+    ------
+    ValueError
+        If the number of step values does not match the number of methods or a
+        step value is invalid.
     """
     if tokens is None:
         return None
@@ -199,9 +233,15 @@ def parse_steps(
 def _gt_filename(name: str) -> str:
     """Map a prediction image name to its ground-truth filename.
 
-    The ``predictions.npz`` keys mirror the *input* image names (``input_img_*``),
-    while the ground truths are stored as ``target_img_*.tif``; translate the
-    ``input`` prefix to ``target`` so the two line up.
+    Parameters
+    ----------
+    name : str
+        Prediction image name, usually matching an input file stem.
+
+    Returns
+    -------
+    str
+        Ground-truth TIFF filename.
     """
     return f"{name.replace('input', 'target', 1)}.tif"
 
@@ -212,12 +252,24 @@ def iter_frc_pairs(
     image_names: list[str],
     n_spatial: int,
 ) -> Iterator[tuple[str, np.ndarray, np.ndarray]]:
-    """Lazily yield ``(image_id, prediction, ground_truth)`` 2-D slices.
+    """Yield prediction and ground-truth image pairs for FRC.
 
-    Each ``prediction`` / ``ground_truth`` is channel-first ``(C, H, W)``.
-    ``.npz`` archives decompress each array only on access, so only one image is
-    held in memory at a time. For ``n_spatial == 3`` each volume ``(C, D, H, W)``
-    is expanded into ``D`` per-z-slice images with ids ``f"{name}_z{d:03d}"``.
+    Parameters
+    ----------
+    npz_path : Path
+        Path to a `predictions.npz` archive.
+    target_dir : Path
+        Directory containing target TIFF files.
+    image_names : list of str
+        Prediction names to match.
+    n_spatial : int
+        Number of spatial axes in each source image.
+
+    Yields
+    ------
+    tuple of str, np.ndarray, and np.ndarray
+        Image identifier, prediction, and ground truth. Returned arrays have
+        shape `(C, Y, X)`.
     """
     with np.load(npz_path, allow_pickle=True) as data:
         for name in image_names:
@@ -234,6 +286,11 @@ def iter_frc_pairs(
 
 
 def main() -> None:
+    """Run FRC analysis for the requested dataset.
+
+    Reports, summaries, and curve figures are written under the selected output
+    directory.
+    """
     args = parse_args()
     out_dir = args.output_dir / args.dataset / args.prediction_subdir / "frc"
     out_dir.mkdir(parents=True, exist_ok=True)

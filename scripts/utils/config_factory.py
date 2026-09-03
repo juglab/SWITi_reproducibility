@@ -1,21 +1,8 @@
-"""Pydantic-config factories for MicroSplit inference scripts.
+"""Build CAREamics configuration objects for MicroSplit inference scripts.
 
-Holds the pkl-driven factories that build the configs feeding a
-`MicroSplitModule`:
-
-- :func:`pkl_load` — load a legacy training-config dump.
-- :func:`get_predict_config` — `MicroSplitDataConfig` (data side; picks tiled vs
-  sliding-window patching based on whether `stride` is given).
-- :func:`get_model_config` — `LVAEConfig` (architecture).
-- :func:`get_loss_config` — `LVAELossConfig`. Loss is not actually used at
-  inference time, but :class:`VAEBasedAlgorithm` requires it to validate. We
-  hardcode the loss type to ``"denoisplit_musplit"`` (the value used by every
-  experiment we predict on); kl-type is read from the pkl for completeness.
-- :func:`get_likelihood_config` — `GaussianLikelihoodConfig`. Like the loss, not
-  consumed at predict time, but supplied so :class:`VAEBasedAlgorithm` matches
-  what the checkpoint was trained with.
-- :func:`create_algorithm_config` — `VAEBasedAlgorithm` assembled from the
-  three above.
+The helpers in this module read training configuration data from `config.yaml`
+files and return prediction, model, and algorithm configuration objects used by
+the inference scripts. The `config.yaml` is the old original configuration file.
 """
 from pathlib import Path
 from typing import Literal
@@ -49,7 +36,18 @@ _NONLIN_MAP: dict[str, NonlinLiteral] = {
 
 
 def load_config_data(path: str | Path) -> dict:
-    """Load a legacy MicroSplit training config dump."""
+    """Load a MicroSplit training configuration file.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to a YAML configuration file.
+
+    Returns
+    -------
+    dict
+        Parsed configuration data.
+    """
     with open(path, "r") as f:
         config_data = yaml.safe_load(f)
     return config_data
@@ -66,21 +64,18 @@ def get_predict_config(
     target_stds: list[float],
     batch_size: int = 1,
 ) -> MicroSplitDataConfig:
-    """Build a prediction `MicroSplitDataConfig` from a legacy training-config dump.
+    """Build a prediction data configuration from training config data.
 
     Parameters
     ----------
-    pkl_data : dict
-        Legacy MicroSplit training config (loaded with :func:`pkl_load`).
-        Must carry `image_size`, `multiscale_lowres_count`, `padding_mode`, and
-        optionally `mode_3D` / `depth3D` for 3D experiments.
+    config_data : dict
+        Data section of a MicroSplit training configuration. It must contain
+        `image_size`, `multiscale_lowres_count`, and `padding_mode`, and may
+        contain `mode_3D` and `depth3D` for 3D experiments.
     overlap : list of int
         Overlap per spatial dimension (length 2 for 2D, length 3 for 3D).
     stride : list of int or None, default=None
-        If `None`, a classical `TiledPatchingConfig` is used (inner tiling, no
-        overlap on the kept region). If provided, a
-        `SlidingWindowTiledPatchingConfig` is used (dense overlap averaging — see
-        :class:`careamics.dataset.patching.SlidingWindowTiledPatching`).
+        Sliding-window stride. If `None`, classical inner tiling is configured.
     input_means, input_stds : list of float
         Per-input-channel normalization stats.
     target_means, target_stds : list of float
@@ -91,8 +86,7 @@ def get_predict_config(
     Returns
     -------
     MicroSplitDataConfig
-        Configuration ready to be passed to
-        :func:`careamics.dataset.factory.create_microsplit_pred_dataset`.
+        Prediction data configuration.
     """
     is_3d = config_data.get("mode_3D", False)
     axes = "CZYX" if is_3d else "CYX"
@@ -124,12 +118,17 @@ def get_predict_config(
 
 
 def get_model_config(config_data: dict) -> LVAEConfig:
-    """Build an `LVAEConfig` from a legacy MicroSplit training-config dump.
+    """Build an LVAE model configuration from training config data.
 
-    Architecture fields come from `pkl_data["model"]`; spatial / multiscale
-    fields come from `pkl_data["data"]`. Output channels are resolved by trying,
-    in order: `model.num_targets`, `len(data.target_idx_list)`,
-    `data.num_channels` — covers both paired and multiplexed experiments.
+    Parameters
+    ----------
+    config_data : dict
+        Parsed MicroSplit training configuration.
+
+    Returns
+    -------
+    LVAEConfig
+        Model configuration for the MicroSplit algorithm.
     """
     data = config_data["data"]
     model = config_data["model"]
@@ -160,22 +159,38 @@ def get_model_config(config_data: dict) -> LVAEConfig:
 
 
 def create_algorithm_config(config_data: dict) -> MicroSplitAlgorithm:
-    """Assemble a `VAEBasedAlgorithm` from a legacy training-config dump.
+    """Build a MicroSplit algorithm configuration.
 
-    Composes :func:`get_model_config`, :func:`get_loss_config` and
-    :func:`get_likelihood_config`. Algorithm is always ``"microsplit"``
-    (CAREamics's umbrella label for muSplit / denoiSplit / denoiSplit-muSplit
-    training).
+    Parameters
+    ----------
+    config_data : dict
+        Parsed MicroSplit training configuration.
+
+    Returns
+    -------
+    MicroSplitAlgorithm
+        Algorithm configuration containing the model configuration.
     """
     return MicroSplitAlgorithm(model=get_model_config(config_data))
 
 
 def _resolve_output_channels(config_data: dict) -> int:
-    """Resolve the number of output (target) channels from a legacy pkl dump.
+    """Resolve the number of output target channels.
 
-    Tries, in order: `model.num_targets`, `len(data.target_idx_list)`,
-    `data.num_channels`. Covers both paired (HT_LIF24) and multiplexed
-    (CARE3D / PaviaATN) experiments.
+    Parameters
+    ----------
+    config_data : dict
+        Parsed MicroSplit training configuration.
+
+    Returns
+    -------
+    int
+        Number of target channels.
+
+    Raises
+    ------
+    KeyError
+        If no supported output-channel field is present.
     """
     model = config_data.get("model", {})
     if model.get("num_targets") is not None:
@@ -187,7 +202,7 @@ def _resolve_output_channels(config_data: dict) -> int:
     if data.get("num_channels") is not None:
         return int(data["num_channels"])
     raise KeyError(
-        "Could not resolve output channels from pkl: none of "
+        "Could not resolve output channels from config data: none of "
         "`model.num_targets`, `data.target_idx_list`, `data.num_channels` "
         "is present."
     )

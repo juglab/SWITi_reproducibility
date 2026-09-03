@@ -1,22 +1,20 @@
-"""Run the gradient permutation test on every image of a dataset, per method.
+"""Run the gradient permutation test for one dataset.
 
-Experimental driver, argparse-based so it can be launched from a SLURM job.
+Predictions are read from
+`<prediction-root>/<dataset>/<prediction-subdir>/<method>/predictions.npz`.
+The matching ground truth is read from `<data-root>/<dataset>/targets/test/`
+when ground truth is included. Reports are written to
+`<output-dir>/<dataset>/<prediction-subdir>/gradient_test/`. Note that the gradient test
+is reference free so the ground truth is not required. The gradient test can be run on
+the ground truth to see the baseline rejection rate and ensure that the test is 
+calibrated (for alpha=0.05 we should expect a baseline rejection rate of 5%).
 
-Data layout (see ``playground.ipynb``): for a dataset ``D`` each method stores a
-single ``predictions.npz`` whose keys are image names and whose arrays squeeze to
-channel-first ``(C, H, W)`` (2-D) or ``(C, D, H, W)`` (3-D) — the spatial
-dimensionality is inferred from the number of ``--tile-size`` entries; the
-matching ground truth lives at ``{data_root}/{D}/targets/test/{image_name}.tif``.
-Images within a dataset may differ in size, so we test them one at a time
-(``N=1``) and merge the per-image reports into one :class:`MethodReport` per
-method.
+Each selected method produces a `{method}_gradient_report.json` file. The script
+also writes `summary.csv` and `gradient_test_config.json` in the same output
+directory.
 
-Outputs (under ``{output_dir}``):
-- ``{method}_gradient_report.json`` — the full per-method report (nested
-  image -> channel -> tiles), loadable via ``MethodReport.load``.
-- ``summary.csv`` — one row per (method, image, channel) from ``to_records()``.
-
-Example::
+Example
+-------
 
     uv run python scripts/run_gradient_test_on_dataset.py \\
         --dataset PaviaATN --prediction-root /path/to/results \\
@@ -45,7 +43,13 @@ METHODS_TO_SUBDIR = {
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """Parse command-line arguments.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments.
+    """
     p = argparse.ArgumentParser(
         description="Run the gradient permutation test on all images of a dataset.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -92,7 +96,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "TiledPatching tile size per spatial axis. If None will attempt to read it "
-            "from the inner tiling inference_config.json."
+            "from the inner tiling inference_params.json."
         ),
     )
     p.add_argument(
@@ -102,7 +106,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "TiledPatching overlap per spatial axis. If None will attempt to read it "
-            "from the inner tiling inference_config.json."
+            "from the inner tiling inference_params.json."
         ),
     )
     p.add_argument(
@@ -165,11 +169,24 @@ def parse_args() -> argparse.Namespace:
 
 
 def _ensure_channel_first(arr: np.ndarray, n_spatial: int) -> np.ndarray:
-    """Squeeze to channel-first ``(C, *spatial)`` for the given spatial ndim.
+    """Return an array with channel-first axes.
 
-    ``n_spatial`` is 2 for 2-D ``(C, H, W)`` or 3 for 3-D ``(C, D, H, W)``.
-    A bare spatial array with no channel axis (``(H, W)`` / ``(D, H, W)``) is
-    promoted to a single channel.
+    Parameters
+    ----------
+    arr : np.ndarray
+        Image array with optional singleton axes.
+    n_spatial : int
+        Number of spatial axes, either 2 for `(Y, X)` or 3 for `(Z, Y, X)`.
+
+    Returns
+    -------
+    np.ndarray
+        Image array with shape `(C, *spatial)`.
+
+    Raises
+    ------
+    ValueError
+        If the squeezed array cannot be interpreted as channel-first.
     """
     arr = np.asarray(arr).squeeze()
     if arr.ndim == n_spatial:
@@ -183,8 +200,20 @@ def _ensure_channel_first(arr: np.ndarray, n_spatial: int) -> np.ndarray:
 
 
 def read_image_names(npz_path: Path, max_images: int | None) -> list[str]:
-    """Return the image names in a ``predictions.npz`` (reads the archive index,
-    not the arrays); optionally capped to the first ``max_images``."""
+    """Return image names stored in a prediction archive.
+
+    Parameters
+    ----------
+    npz_path : Path
+        Path to a `predictions.npz` archive.
+    max_images : int or None
+        Maximum number of names to return. If `None`, all names are returned.
+
+    Returns
+    -------
+    list of str
+        Prediction archive keys in archive order.
+    """
     names = list(np.load(npz_path, allow_pickle=True).files)
     return names if max_images is None else names[:max_images]
 
@@ -192,11 +221,21 @@ def read_image_names(npz_path: Path, max_images: int | None) -> list[str]:
 def iter_prediction_images(
     npz_path: Path, image_names: list[str], n_spatial: int
 ) -> Iterator[tuple[str, np.ndarray]]:
-    """Lazily yield ``(name, (C, *spatial))`` from a ``predictions.npz``.
+    """Yield prediction images from a prediction archive.
 
-    ``.npz`` archives decompress each array only on access, so this keeps just
-    one image in memory at a time. ``n_spatial`` (2 or 3) selects the expected
-    channel-first layout ``(C, H, W)`` / ``(C, D, H, W)``.
+    Parameters
+    ----------
+    npz_path : Path
+        Path to a `predictions.npz` archive.
+    image_names : list of str
+        Archive keys to read.
+    n_spatial : int
+        Number of spatial axes in each image.
+
+    Yields
+    ------
+    tuple of str and np.ndarray
+        Image name and channel-first prediction array.
     """
     with np.load(npz_path, allow_pickle=True) as data:
         for name in image_names:
@@ -206,9 +245,15 @@ def iter_prediction_images(
 def _gt_filename(name: str) -> str:
     """Map a prediction image name to its ground-truth filename.
 
-    The ``predictions.npz`` keys mirror the *input* image names (``input_img_*``),
-    while the ground truths are stored as ``target_img_*.tif``; translate the
-    ``input`` prefix to ``target`` so the two line up.
+    Parameters
+    ----------
+    name : str
+        Prediction image name, usually matching an input file stem.
+
+    Returns
+    -------
+    str
+        Ground-truth TIFF filename.
     """
     return f"{name.replace('input', 'target', 1)}.tif"
 
@@ -216,9 +261,21 @@ def _gt_filename(name: str) -> str:
 def iter_gt_images(
     target_dir: Path, image_names: list[str], n_spatial: int
 ) -> Iterator[tuple[str, np.ndarray]]:
-    """Lazily yield ``(name, (C, *spatial))`` ground truths, one file at a time.
+    """Yield ground-truth images matching prediction names.
 
-    ``n_spatial`` (2 or 3) selects the expected channel-first layout.
+    Parameters
+    ----------
+    target_dir : Path
+        Directory containing target TIFF files.
+    image_names : list of str
+        Prediction names to match.
+    n_spatial : int
+        Number of spatial axes in each image.
+
+    Yields
+    ------
+    tuple of str and np.ndarray
+        Prediction name and matching channel-first ground-truth array.
     """
     for name in image_names:
         yield (
@@ -232,51 +289,55 @@ def iter_gt_images(
 def read_tile_size_and_overlap(
     pred_dir: Path, tile_size: tuple[int, ...] | None, overlap: tuple[int, ...] | None
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    """
-    Retrieve the tile size and overlap from saved configurations.
+    """Return tile size and overlap for gradient-test geometry.
 
     Parameters
     ----------
     pred_dir : Path
-        The directory containing the predictions from each method.
+        Prediction directory containing method subdirectories.
     tile_size : tuple[int, ...] | None
-        If not None will directly return tile size.
+        Tile size supplied by the caller. If `None`, it is read from
+        `inner_tiling/inference_params.json`.
     overlap : tuple[int, ...] | None
-        If not None will directly return the overlap
+        Tile overlap supplied by the caller. If `None`, it is read from
+        `inner_tiling/inference_params.json`.
 
     Returns
     -------
-    tuple[int, ...]
-        The tile size.
-    tuple[int, ...]
-        The overlap
+    tuple of tuple of int
+        Tile size and overlap.
 
     Raises
     ------
     FileNotFoundError
-        If the inference_config.json file for the inner_tiling method cannot be found.
+        If `inner_tiling/inference_params.json` is needed and cannot be found.
     """
     if tile_size is not None and overlap is not None:
         return tile_size, overlap
 
-    inference_config_path = pred_dir / "inner_tiling" / "inference_params.json"
+    inference_params_path = pred_dir / "inner_tiling" / "inference_params.json"
     try:
-        with open(inference_config_path) as f:
-            inference_config = json.load(f)
+        with open(inference_params_path) as f:
+            inference_params = json.load(f)
     except FileNotFoundError as e:
         raise FileNotFoundError(
-            f"Could not find inference config at {inference_config_path}."
+            f"Could not find inference parameters at {inference_params_path}."
         ) from e
 
     if tile_size is None:
-        tile_size = tuple(inference_config["tile_size"])
+        tile_size = tuple(inference_params["tile_size"])
     if overlap is None:
-        overlap = tuple(inference_config["overlap"])
+        overlap = tuple(inference_params["overlap"])
 
     return tile_size, overlap
 
 
 def main() -> None:
+    """Run gradient tests for the requested dataset.
+
+    Reports, summaries, and the saved test configuration are written under the
+    selected output directory.
+    """
     args = parse_args()
     out_dir = args.output_dir / args.dataset / args.prediction_subdir / "gradient_test"
     out_dir.mkdir(parents=True, exist_ok=True)

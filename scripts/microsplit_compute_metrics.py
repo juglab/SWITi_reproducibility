@@ -1,27 +1,18 @@
-"""MicroSplit — compute global metrics on stitched predictions (CL-args entry point).
+"""Compute global metrics on stitched MicroSplit predictions.
 
-Companion to the inference scripts (:mod:`scripts.microsplit_inner_tiling_inference`
-and :mod:`scripts.microsplit_switi_inference`). Those scripts save, per prediction
-directory, a ``predictions.npz`` (keyed by input-image filename stem, each stitched
-prediction shaped ``(S, C, [Z], Y, X)`` and already denormalised to target units)
-alongside an ``inference_params.json`` recording the run configuration:
+The script reads `<prediction-root>/<dataset>/<prediction-subdir>/<method>/`
+for a `predictions.npz` file and its `inference_params.json` sidecar, loads the
+matching target TIFFs from `<data-root>/<dataset>/targets/<split>/`, and writes
+`metrics.json` and `metrics_per_image.json` beside the predictions.
 
-    {"tile_size": [...], "overlap": [...], "mmse_count": N,
-     "ckpt_path": "...", "data_dir": "..."}
+The computed channel-wise global metrics can be selected from (PSNR, LPIPS, MS-SSIM, 
+MicroMS3IM, Pearson).
 
-This script uses ``--data-root`` and ``--dataset`` to locate the GT
-(``<data-root>/<dataset>/targets/<split>/``), and reads the prediction sidecar
-to fill provenance fields of the metric logs. It loads the matching target TIFFs
-and computes channel-wise global metrics (PSNR, LPIPS, MS-SSIM, MicroMS3IM,
-Pearson) via :func:`scripts.metrics_utils.compute_unmixing_metrics`. Results are
-written next to the predictions as ``metrics.json`` (dataset averages) and
-``metrics_per_image.json``. Whether the data is 3D is inferred from
-``len(tile_size)`` (3 -> 3D, 2 -> 2D), so no pkl config is loaded.
+Predictions are matched to ground truth by the sorted input and target file
+order. Prediction arrays are expected as `(S, C, [Z], Y, X)`, with missing
+leading sample or channel axes accepted when unambiguous.
 
-Prediction <-> GT matching is positional: ``inputs/<split>`` and ``targets/<split>``
-are both sorted (see :func:`scripts.io.list_files`), and predictions are keyed by
-the input stem, so prediction ``i`` pairs with target file ``i``. When a file holds
-several frames (``S > 1``) each frame is scored as a separate image.
+When a file holds several frames (`S > 1`) each frame is scored as a separate image.
 
 Run from the repo root:
 
@@ -54,10 +45,26 @@ METHODS_TO_SUBDIR = {
 
 
 def _ensure_canonical(arr: NDArray, *, is_3d: bool) -> NDArray:
-    """Pad leading axes so ``arr`` has shape ``(S, C, [Z], Y, X)``.
+    """Return an array with shape `(S, C, [Z], Y, X)`.
 
-    Stitched predictions are already full ``SC(Z)YX``; this only prepends size-1
-    axes when a prediction was stored without an explicit sample axis.
+    Parameters
+    ----------
+    arr : NDArray
+        Prediction array with spatial, channel-spatial, or sample-channel-spatial
+        axes.
+    is_3d : bool
+        Whether the spatial axes are `(Z, Y, X)`.
+
+    Returns
+    -------
+    NDArray
+        Prediction array with explicit sample and channel axes.
+
+    Raises
+    ------
+    ValueError
+        If the number of dimensions is not compatible with the requested data
+        dimensionality.
     """
     spatial = 3 if is_3d else 2
     target_ndim = spatial + 2  # S, C, plus spatial
@@ -74,12 +81,19 @@ def _ensure_canonical(arr: NDArray, *, is_3d: bool) -> NDArray:
 
 
 def _center_crop_to_match(pred: NDArray, gt: NDArray) -> tuple[NDArray, NDArray]:
-    """Center-crop ``pred`` and ``gt`` (each ``(C, [Z], Y, X)``) to a common shape.
+    """Center-crop prediction and ground truth to a common spatial shape.
 
-    Spatial dims can differ by a few pixels if the stitched prediction retains
-    tiling padding while the GT is at its original size. Cropping both to the
-    per-axis minimum around the center keeps them aligned. The channel axis
-    (index 0) is left untouched.
+    Parameters
+    ----------
+    pred : NDArray
+        Prediction image with shape `(C, [Z], Y, X)`.
+    gt : NDArray
+        Ground-truth image with shape `(C, [Z], Y, X)`.
+
+    Returns
+    -------
+    tuple of NDArray
+        Cropped prediction and ground truth with matching spatial shape.
     """
     if pred.shape == gt.shape:
         return pred, gt
@@ -101,9 +115,30 @@ def _load_pred_gt_pairs(
 ) -> tuple[list[NDArray], list[NDArray], list[str]]:
     """Load predictions and matching GT targets as parallel per-image lists.
 
-    Returns ``(pred_imgs, gt_imgs, img_fnames)`` where each image is
-    ``(C, [Z], Y, X)``; multi-frame files (``S > 1``) are unrolled into one image
-    per frame with a ``<stem>__s{n}`` name.
+    Parameters
+    ----------
+    predictions_path : Path
+        Path to a `predictions.npz` archive.
+    data_dir : Path
+        Dataset directory containing `inputs/<split>/` and `targets/<split>/`.
+    split : str
+        Dataset split to load.
+    is_3d : bool
+        Whether images have `(Z, Y, X)` spatial axes.
+
+    Returns
+    -------
+    tuple of list
+        Prediction images, ground-truth images, and image identifiers. Each image
+        has shape `(C, [Z], Y, X)`. Multi-sample files are expanded to one image
+        per sample with `<stem>__s{n}` identifiers.
+
+    Raises
+    ------
+    ValueError
+        If inputs and targets cannot be matched or have incompatible shapes.
+    KeyError
+        If a prediction is missing from the archive.
     """
     npz = np.load(predictions_path)
     npz_keys = set(npz.keys())
@@ -155,7 +190,15 @@ def _load_pred_gt_pairs(
 def main(args: argparse.Namespace) -> Path:
     """Compute and log metrics for one prediction directory.
 
-    Returns the directory where the metric JSONs were written.
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments.
+
+    Returns
+    -------
+    Path
+        Directory where metric JSON files were written.
     """
     pred_dir = (
         args.prediction_root
@@ -206,6 +249,18 @@ def main(args: argparse.Namespace) -> Path:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Parameters
+    ----------
+    argv : list of str, optional
+        Arguments to parse. If `None`, arguments are read from the command line.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments.
+    """
     p = argparse.ArgumentParser(
         prog="microsplit-compute-metrics",
         description=(

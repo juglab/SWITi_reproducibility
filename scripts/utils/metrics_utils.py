@@ -1,18 +1,12 @@
 """Global image-quality metrics for stitched MicroSplit predictions.
 
-Ported (and trimmed) from ``lambdaSplit/utils/metrics_utils.py`` for use by the
-tiling-experiment scripts. Provides channel-wise metric computers, an
-orchestrator (:func:`compute_unmixing_metrics`), and JSON log / load / display
-helpers.
+The module computes channel-wise PSNR, LPIPS, MS-SSIM, MicroMS3IM, and Pearson
+correlation for prediction and ground-truth image lists. It also provides JSON
+helpers for saving, loading, and printing metric results.
 
-The metric primitives (``scale_invariant_psnr``, ``range_invariant_multiscale_ssim``,
-``lpips``) live in :mod:`careamics.metrics.metrics`; ``MicroMS3IM`` comes from
-``microssim`` and Pearson correlation from ``skimage``.
-
-Output structure (consumed by ``scripts.plotting_utils._parse_metrics``):
-- ``metrics_avg``: ``{metric_group: {channel_key: value}}`` where ``channel_key``
-  is e.g. ``"RI-PSNR_FP#1"`` or ``"Avg RI-PSNR"``.
-- ``metrics_per_img``: same, with an extra innermost ``{img_fname: value}`` level.
+Average metric dictionaries have the shape
+`{metric_group: {channel_key: value}}`. Per-image metric dictionaries add image
+names as the innermost keys.
 """
 
 import json
@@ -36,7 +30,7 @@ from careamics.metrics.metrics import (
 
 
 def _normalize_for_lpips(imgs: list[NDArray]) -> list[NDArray]:
-    """Normalize the given images in [0, 1] for LPIPS.
+    """Normalize images to the `[0, 1]` range for LPIPS.
 
     Parameters
     ----------
@@ -62,7 +56,7 @@ def _compute_channelwise_psnr(
     gt_imgs: list[NDArray],
     img_fnames: list[str],
 ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
-    """Compute the channel-wise PSNR over the given images.
+    """Compute channel-wise PSNR metrics.
 
     Parameters
     ----------
@@ -71,13 +65,13 @@ def _compute_channelwise_psnr(
     gt_imgs : list[NDArray]
         The ground truth data as a list of arrays, each of shape (C, [Z], Y, X).
     img_fnames : list[str]
-        The names of the images, used for per-image values. Default is None.
+        Image names used for per-image values.
 
     Returns
     -------
     tuple[dict[str, float], dict[str, dict[str, float]]]
-        The PSNR values for each channel plus the average one, both as average
-        metrics over the dataset and per-image metrics.
+        Dataset-average and per-image PSNR values for each channel and the
+        channel average.
     """
     psnr_avg_dict = {}
     psnr_per_img_dict = {}
@@ -115,7 +109,7 @@ def _compute_channelwise_lpips(
     gt_imgs: list[NDArray],
     img_fnames: list[str],
 ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
-    """Compute the channel-wise LPIPS over the given images.
+    """Compute channel-wise LPIPS metrics.
 
     Parameters
     ----------
@@ -124,13 +118,13 @@ def _compute_channelwise_lpips(
     gt_imgs : list[NDArray]
         The ground truth data as a list of arrays. Each array has shape (C, [Z], Y, X).
     img_fnames : list[str]
-        The names of the images, used for per-image values. Default is None.
+        Image names used for per-image values.
 
     Returns
     -------
     tuple[dict[str, float], dict[str, dict[str, float]]]
-        The LPIPS values for each channel plus the average one, both as average
-        metrics over the dataset and per-image metrics.
+        Dataset-average and per-image LPIPS values for each channel and the
+        channel average.
     """
     # normalize the images in [0, 1]
     pred_imgs = _normalize_for_lpips(pred_imgs)
@@ -177,7 +171,7 @@ def _compute_channelwise_multiscale_ssim(
     gt_imgs: list[NDArray],
     img_fnames: list[str],
 ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
-    """Compute the channel-wise multiscale SSIM over the given images.
+    """Compute channel-wise multiscale SSIM metrics.
 
     Parameters
     ----------
@@ -186,13 +180,13 @@ def _compute_channelwise_multiscale_ssim(
     gt_imgs : list[NDArray]
         The ground truth data as a list of arrays, each of shape (C, [Z], Y, X).
     img_fnames : list[str]
-        The names of the images, used for per-image values. Default is None.
+        Image names used for per-image values.
 
     Returns
     -------
     tuple[dict[str, float], dict[str, dict[str, float]]]
-        The MS-SSIM values for each channel plus the average one, both as average
-        metrics over the dataset and per-image metrics.
+        Dataset-average and per-image MS-SSIM values for each channel and the
+        channel average.
     """
     ssim_avg_dict = {}
     ssim_per_img_dict = {}
@@ -233,11 +227,7 @@ def _compute_channelwise_microms3im(
     gt_imgs: list[NDArray],
     img_fnames: list[str],
 ) -> tuple[dict[str, float] | None, dict[str, dict[str, float]] | None]:
-    """Compute the channel-wise MicroMS3IM metric over the given images.
-
-    For each channel, a MicroMS3IM scaler is fitted over all images for that
-    channel, ensuring consistent scaling within each channel. The fitted scaler
-    is then used to score each image individually.
+    """Compute channel-wise MicroMS3IM metrics.
 
     Parameters
     ----------
@@ -246,13 +236,13 @@ def _compute_channelwise_microms3im(
     gt_imgs : list[NDArray]
         The ground truth data as a list of arrays. Each array has shape (C, [Z], Y, X).
     img_fnames : list[str]
-        The names of the images, used for per-image values. Default is None.
+        Image names used for per-image values.
 
     Returns
     -------
-    tuple[dict[str, float], dict[str, dict[str, float]]]
-        The MicroMS3IM values for each channel plus the average one, both as
-        average metrics over the dataset and per-image metrics.
+    tuple of dict or tuple of None
+        Dataset-average and per-image MicroMS3IM values for each channel and the
+        channel average. Returns `(None, None)` for 3D images.
     """
     if pred_imgs[0].ndim == 4:
         warn(
@@ -313,7 +303,7 @@ def _compute_channelwise_pearson(
     gt_imgs: list[NDArray],
     img_fnames: list[str],
 ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
-    """Compute the channel-wise Pearson correlation over the given images.
+    """Compute channel-wise Pearson correlation metrics.
 
     Parameters
     ----------
@@ -322,13 +312,13 @@ def _compute_channelwise_pearson(
     gt_imgs : list[NDArray]
         The ground truth data as a list of arrays, each of shape (C, [Z], Y, X).
     img_fnames : list[str]
-        The names of the images, used for per-image values. Default is None.
+        Image names used for per-image values.
 
     Returns
     -------
     tuple[dict[str, float], dict[str, dict[str, float]]]
-        The Pearson correlation values for each channel plus the average one, both
-        as average metrics over the dataset and per-image metrics.
+        Dataset-average and per-image Pearson values for each channel and the
+        channel average.
     """
     pearson_avg_dict = {}
     pearson_per_img_dict = {}
@@ -367,7 +357,7 @@ def compute_unmixing_metrics(
     metrics: list[Literal["PSNR", "LPIPS", "MSSIM", "MicroMS3IM", "Pearson"]],
     img_fnames: list[str],
 ) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, dict[str, float]]]]:
-    """Compute metrics for the current unmixing experiment.
+    """Compute selected image-quality metrics for unmixing predictions.
 
     Parameters
     ----------
@@ -468,12 +458,12 @@ def log_metrics(
     per_image: bool = False,
     filename: Optional[str] = None,
 ) -> None:
-    """Log the metrics in a JSON file.
+    """Write metrics to a JSON log file.
 
     Parameters
     ----------
     metrics_dict : dict[str, dict[str, float]]
-        Dictionary containing the metrics.
+        Metrics to write.
     log_dir : Union[str, Path]
         Directory where the metrics are saved.
     data_path : Union[str, Path]
@@ -487,7 +477,7 @@ def log_metrics(
     tile_overlap : Optional[Union[list[int], str]]
         Tile overlap (or stride) used at inference. Stored for provenance.
     per_image : bool
-        Whether the metrics are per image or not. Used for the default filename.
+        Whether metrics contain per-image values. Used for the default filename.
     filename : Optional[str]
         Custom filename for the metrics file. If None, defaults to
         "metrics_per_image.json" or "metrics.json" based on `per_image`.
@@ -523,18 +513,17 @@ def log_metrics(
 def load_metrics(
     log_dir: Union[str, Path],
 ) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, dict[str, float]]]]:
-    """Load the pre-computed metrics from disk.
+    """Load metric logs from disk.
 
     Parameters
     ----------
     log_dir : Union[str, Path]
-        Directory where the logs are saved.
+        Directory containing `metrics.json` and `metrics_per_image.json`.
 
     Returns
     -------
     tuple[dict[str, dict[str, float]], dict[str, dict[str, dict[str, float]]]]
-        The loaded metrics dicts, the first one with average metrics over the
-        dataset, and the second with per-image metrics.
+        Dataset-average metrics and per-image metrics from the latest log entry.
     """
     metrics_per_img_fpath = os.path.join(log_dir, "metrics_per_image.json")
     metrics_avg_fpath = os.path.join(log_dir, "metrics.json")
@@ -554,7 +543,7 @@ def load_metrics(
 
 
 def show_metrics(metrics_dict: dict[str, dict[str, float]]) -> None:
-    """Print the metrics in a nice format.
+    """Print metric values grouped by metric name.
 
     Parameters
     ----------

@@ -17,8 +17,10 @@ if TYPE_CHECKING:
 
 # Top-level keys that don't map onto the NG MicroSplitModule and are dropped
 # before loading. `noiseModel.*` and `likelihood_NM.*` carry the noise-model +
-# NM-likelihood weights that v1 doesn't load (gaussian likelihood only — see
-# `scripts.config_factory.get_likelihood_config`).
+# NM-likelihood weights.
+# NOTE: Noise models are only used in the loss during training, so they are not needed
+# for SWITi inference.
+# A refactoring of the LVAE in CAREamics has removed the likelihood from the model.
 _DROP_KEY_PREFIXES: tuple[str, ...] = ("noiseModel.", "likelihood_NM.")
 
 # Suffixes dropped from each key. `num_batches_tracked` is a BatchNorm
@@ -28,27 +30,17 @@ _DROP_KEY_SUFFIXES: tuple[str, ...] = (".num_batches_tracked",)
 
 
 def convert_legacy_state_dict(state_dict: dict) -> dict:
-    """Rewrite a legacy MicroSplit checkpoint state-dict into NG layout.
-
-    Two transforms:
-    1. Prepend the ``model.`` prefix to every retained key. Legacy checkpoints
-       store the raw ``LVAE`` ``nn.Module``'s keys at the root; the NG
-       :class:`MicroSplitModule` wraps the LVAE as ``self.model``, so every
-       architecture key needs the prefix.
-    2. Drop keys that don't belong to the NG model: noise-model + NM-likelihood
-       weights (we use Gaussian likelihood only in v1), and `num_batches_tracked`
-       BN buffers (not registered by the NG BN layers).
+    """Return checkpoint weights with keys accepted by `MicroSplitModule`.
 
     Parameters
     ----------
     state_dict : dict
-        Raw state-dict pulled out of `ckpt["state_dict"]`.
+        Raw checkpoint state dictionary.
 
     Returns
     -------
     dict
-        State-dict with NG-compatible keys; safe to pass to
-        :meth:`MicroSplitModule.load_state_dict` with ``strict=True``.
+        State dictionary compatible with the loaded MicroSplit module.
     """
     converted: dict = {}
     for key, value in state_dict.items():
@@ -67,22 +59,12 @@ def build_microsplit_module(
 ) -> MicroSplitModule:
     """Instantiate a `MicroSplitModule` and load weights from a checkpoint.
 
-    Reads the architecture + loss + likelihood configuration from `pkl_path`
-    (legacy `config.pkl`) via
-    :func:`scripts.config_factory.create_algorithm_config`, and loads weights
-    from `ckpt_path` after running the state-dict through
-    :func:`convert_legacy_state_dict` to repair the legacy → NG key layout.
-
-    Note: target-channel denormalization stats are *not* set here — call
-    `module.set_target_stats(...)` after building the prediction dataset.
-
     Parameters
     ----------
     ckpt_path : str or Path
-        Path to the Lightning checkpoint file
-        (e.g. `<ckpt_dir>/BaselineVAECL_best.ckpt`).
-    pkl_path : str or Path
-        Path to the legacy training-config dump (e.g. `<ckpt_dir>/config.pkl`).
+        Path to the Lightning checkpoint file.
+    config_path : str or Path
+        Path to the MicroSplit training configuration YAML file.
     device : torch.device or str or None, default=None
         If provided, the module is moved to this device.
 
@@ -91,8 +73,8 @@ def build_microsplit_module(
     MicroSplitModule
         Module in eval mode with weights loaded.
     """
-    pkl_data = load_config_data(config_path)
-    algorithm_config = create_algorithm_config(pkl_data)
+    config_data = load_config_data(config_path)
+    algorithm_config = create_algorithm_config(config_data)
 
     module = MicroSplitModule(algorithm_config=algorithm_config)
 

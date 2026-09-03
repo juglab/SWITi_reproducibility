@@ -1,27 +1,15 @@
 """Normalization-stat computation for MicroSplit experiments.
 
 Checkpoints in `<CKPT_ROOT>/<exp>/` carry no normalization stats, so we recompute
-them from the training data — once per experiment — and cache the result in a
+them from the training data once per experiment and cache the result in a
 JSON sidecar next to the data. The sidecar is invalidated automatically when the
-training files change (detected via a cheap name+size+mtime hash).
+training files change.
 
-At inference time there is no on-the-fly input synthesis — every experiment has
-real input files on disk under `inputs/<split>/*.tif` and real target files
-under `targets/<split>/*.tif`. We therefore compute stats independently from
-each directory using the same per-channel pipeline, regardless of how the
-inputs got there at train time. (Note: for legacy multiplexed experiments where
-the trainer synthesised inputs on the fly from targets, this means the input
-*scale* used here may differ from what the model saw during training. The model
-is robust to scale shifts via BatchNorm in both encoder and decoder, but if you
-see degraded predictions on multiplexed datasets this is a likely first thing
-to investigate.)
+The returned dictionary contains per-channel means and standard deviations for
+input and target training TIFFs:
 
-The returned dict shape matches `MeanStdConfig`:
-
-    {"input_means": [...], "input_stds": [...],
-     "target_means": [...], "target_stds": [...]}
-
-so it can be splat directly into :func:`scripts.config_factory.get_predict_config`.
+    {'input_means': [...], 'input_stds': [...],
+     'target_means': [...], 'target_stds': [...]}
 """
 
 from __future__ import annotations
@@ -68,7 +56,6 @@ def load_or_compute_stats(
     -------
     dict[str, list[float]]
         Keys: `input_means`, `input_stds`, `target_means`, `target_stds`.
-        Suitable to splat into :func:`scripts.config_factory.get_predict_config`.
     """
     sidecar = Path(data_dir) / _STATS_FILENAME
     files = _files_driving_computation(data_dir)
@@ -79,7 +66,7 @@ def load_or_compute_stats(
             cached = json.loads(sidecar.read_text())
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning(
-                "Could not read cached stats at %s (%s) — recomputing.",
+                "Could not read cached stats at %s (%s) - recomputing.",
                 sidecar,
                 exc
             )
@@ -91,7 +78,7 @@ def load_or_compute_stats(
                 return _strip_metadata(cached)
             logger.warning(
                 "Cached stats at %s are stale (train files changed or schema "
-                "bumped) — recomputing.",
+                "bumped) - recomputing.",
                 sidecar,
             )
 
@@ -110,7 +97,20 @@ def load_or_compute_stats(
 
 
 def _compute_stats(data_dir: Path, *, is_3d: bool) -> dict[str, list[float]]:
-    """Per-channel stats from `inputs/train/*` and `targets/train/*`."""
+    """Compute per-channel stats from training inputs and targets.
+
+    Parameters
+    ----------
+    data_dir : Path
+        Dataset directory containing `inputs/train/` and `targets/train/`.
+    is_3d : bool
+        Whether files have a Z axis.
+
+    Returns
+    -------
+    dict[str, list[float]]
+        Per-channel input and target means and standard deviations.
+    """
     input_files = list_files(data_dir, "train", "inputs")
     target_files = list_files(data_dir, "train", "targets")
 
@@ -135,14 +135,25 @@ def _compute_stats(data_dir: Path, *, is_3d: bool) -> dict[str, list[float]]:
 
 
 class _ScalarWelford:
-    """Streaming scalar mean/var (Welford's algorithm, numerically stable)."""
+    """Accumulate scalar mean and standard deviation over streamed values."""
 
     def __init__(self) -> None:
+        """Create an empty scalar accumulator.
+
+        No values are included until `update` is called.
+        """
         self.count = 0
         self.mean = 0.0
         self.m2 = 0.0  # sum of squared deviations from the running mean
 
     def update(self, values: np.ndarray) -> None:
+        """Add values to the accumulator.
+
+        Parameters
+        ----------
+        values : np.ndarray
+            Values to include in the accumulated statistics.
+        """
         chunk = np.asarray(values, dtype=np.float64).reshape(-1)
         n_b = chunk.size
         if n_b == 0:
@@ -158,6 +169,18 @@ class _ScalarWelford:
         self.count = n
 
     def finalize(self) -> tuple[float, float]:
+        """Return the accumulated mean and standard deviation.
+
+        Returns
+        -------
+        tuple of float
+            Mean and standard deviation.
+
+        Raises
+        ------
+        ValueError
+            If no values have been accumulated.
+        """
         if self.count == 0:
             raise ValueError("No data accumulated.")
         var = self.m2 / self.count
@@ -165,16 +188,31 @@ class _ScalarWelford:
 
 
 class _PerChannelWelford:
-    """Streaming per-channel mean/var with the channel axis at index 1.
+    """Accumulate per-channel mean and standard deviation.
 
-    Inputs are expected to have axes `(S, C, [Z], Y, X)`. The first call fixes C;
-    subsequent calls must match.
+    Input arrays are expected to have shape `(S, C, [Z], Y, X)`.
     """
 
     def __init__(self) -> None:
+        """Create an empty per-channel accumulator.
+
+        The channel count is set by the first call to `update`.
+        """
         self._scalars: list[_ScalarWelford] | None = None
 
     def update(self, arr: np.ndarray) -> None:
+        """Add a channel-first image batch to the accumulator.
+
+        Parameters
+        ----------
+        arr : np.ndarray
+            Array with shape `(S, C, [Z], Y, X)`.
+
+        Raises
+        ------
+        ValueError
+            If the channel count differs from earlier updates.
+        """
         # arr has shape (S, C, ...). Per-channel update treats every non-C axis
         # as a sample for that channel.
         n_channels = arr.shape[1]
@@ -192,6 +230,18 @@ class _PerChannelWelford:
             self._scalars[c].update(flat[c])
 
     def finalize(self) -> tuple[list[float], list[float]]:
+        """Return accumulated per-channel means and standard deviations.
+
+        Returns
+        -------
+        tuple of list of float
+            Per-channel means and standard deviations.
+
+        Raises
+        ------
+        ValueError
+            If no arrays have been accumulated.
+        """
         if self._scalars is None:
             raise ValueError("No data accumulated.")
         means, stds = zip(*(s.finalize() for s in self._scalars), strict=True)
@@ -201,11 +251,23 @@ class _PerChannelWelford:
 def _load_canonical(path: Path, *, is_3d: bool) -> np.ndarray:
     """Load a TIFF and reshape to `(S, C, [Z], Y, X)`.
 
-    Resolves layout heuristically: any missing leading axes (S, C) are prepended
-    as size-1 axes. The function accepts files with ndim in
-    `{spatial, spatial+1, spatial+2}` where `spatial` is 2 (2D) or 3 (3D).
+    Parameters
+    ----------
+    path : Path
+        Path to the TIFF file.
+    is_3d : bool
+        Whether the spatial axes are `(Z, Y, X)`.
 
-    Files with non-matching ndim raise `ValueError`.
+    Returns
+    -------
+    np.ndarray
+        TIFF data with explicit sample and channel axes.
+
+    Raises
+    ------
+    ValueError
+        If the TIFF dimensions are not compatible with the requested data
+        dimensionality.
     """
     arr = np.asarray(tifffile.imread(path))
     spatial = 3 if is_3d else 2
@@ -223,17 +285,35 @@ def _load_canonical(path: Path, *, is_3d: bool) -> np.ndarray:
 
 
 def _files_driving_computation(data_dir: Path) -> list[Path]:
-    """Files whose contents determine the stats (for cache invalidation)."""
+    """Return training files used to compute normalization stats.
+
+    Parameters
+    ----------
+    data_dir : Path
+        Dataset directory.
+
+    Returns
+    -------
+    list of Path
+        Input and target training files.
+    """
     return list_files(data_dir, "train", "inputs") + list_files(
         data_dir, "train", "targets"
     )
 
 
 def _hash_files(files: list[Path]) -> str:
-    """sha1 of sorted `"<name>:<size>:<mtime_ns>"` for cache invalidation.
+    """Return a hash for the files that determine cached statistics.
 
-    Hashes file metadata rather than contents — cheap and sufficient to detect
-    train-set changes (renames, replacements, additions).
+    Parameters
+    ----------
+    files : list of Path
+        Files to include in the hash.
+
+    Returns
+    -------
+    str
+        Hash string for file names, sizes, and modification times.
     """
     parts = sorted(
         f"{p.name}:{p.stat().st_size}:{p.stat().st_mtime_ns}" for p in files
@@ -246,7 +326,18 @@ def _hash_files(files: list[Path]) -> str:
 
 
 def _strip_metadata(cached: dict) -> dict[str, list[float]]:
-    """Keep only the four MeanStdConfig keys from a cached payload."""
+    """Return normalization-stat fields from a cached payload.
+
+    Parameters
+    ----------
+    cached : dict
+        Cached statistics payload.
+
+    Returns
+    -------
+    dict[str, list[float]]
+        Dictionary with input and target means and standard deviations.
+    """
     return {
         k: cached[k]
         for k in ("input_means", "input_stds", "target_means", "target_stds")

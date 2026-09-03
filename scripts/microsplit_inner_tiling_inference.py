@@ -1,10 +1,12 @@
-"""MicroSplit — classical tiled inference (CL-args entry point).
+"""Run MicroSplit inference with classical inner tiling.
 
-Headless companion to :mod:`scripts.microsplit_tiled_inference`. Loads a
-pre-trained MicroSplit checkpoint, runs prediction with classical inner tiling
-(`TiledPatching`, non-overlapping kept regions), stitches via the canonical
-`convert_prediction(..., tiled=True)` path, and saves a single `.npz` keyed by
-input-image identifier.
+The script loads one dataset and its matching checkpoint, predicts all images in
+the selected split, stitches the tiled predictions, and writes a `predictions.npz`
+file plus an `inference_params.json` sidecar.
+
+The MMSE estimate is predicted for each tile location by averaging `--mmse-count` 
+samples at that location. The resulting MMSE estimate tiles are predicted by 
+concatenating the non-overlapping inner regions.
 
 Run from the repo root:
 
@@ -35,9 +37,17 @@ from utils.stats import load_or_compute_stats
 
 
 def main(args: argparse.Namespace) -> Path:
-    """Run end-to-end tiled inference for a single experiment.
+    """Run tiled inference for one dataset.
 
-    Returns the path of the written NPZ file.
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments.
+
+    Returns
+    -------
+    Path
+        Path to the written `predictions.npz` file.
     """
     data_dir = args.data_root / args.dataset
     ckpt_path = args.checkpoint_root / args.dataset / "BaselineVAECL_best.ckpt"
@@ -114,6 +124,18 @@ def main(args: argparse.Namespace) -> Path:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Parameters
+    ----------
+    argv : list of str, optional
+        Arguments to parse. If `None`, arguments are read from the command line.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments.
+    """
     p = argparse.ArgumentParser(
         prog="microsplit-tiled-predict",
         description=(

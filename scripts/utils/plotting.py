@@ -1,3 +1,5 @@
+"""High-level plotting functions for multichannel SWITi figures."""
+
 import os
 from typing import Literal, Optional, Sequence, Union
 
@@ -60,22 +62,22 @@ def plot_multichannel_image(
         Number of rows in the plot. Default is 1.
     cmaps : Optional[Union[ColormapRepo, Sequence[ColormapRepo]]]
         Explicit colormap(s). A single entry is broadcast to all channels. If provided
-        it overrides ``diverging_cmaps`` and ``multicolor_cmaps``. Default is None.
+        it overrides `diverging_cmaps` and `multicolor_cmaps`. Default is None.
     multicolor_cmaps : bool
-        Use a distinct colormap per channel (cycles through ``ColormapRepo``).
-        Set to ``False`` for grayscale when ``diverging_cmaps`` is also ``False``.
-        Default is ``False``.
+        Use a distinct colormap per channel (cycles through `ColormapRepo`).
+        Set to `False` for grayscale when `diverging_cmaps` is also `False`.
+        Default is `False`.
     diverging_cmaps : bool
-        Use diverging colormaps (black at center, red for negatives). Default is ``False``.
+        Use diverging colormaps (black at center, red for negatives). Default is `False`.
     diverging_colors : Optional[Sequence[ColorRepo]]
-        Explicit positive colors for diverging colormaps. Overrides ``multicolor_cmaps``
+        Explicit positive colors for diverging colormaps. Overrides `multicolor_cmaps`
         when set. Default is None.
     diverging_midvalues : Optional[Sequence[float]]
         Midvalues for diverging colormaps. Overrides default of 0. Default is None.
     diverging_symmetric_norm : bool
-        When ``True`` (default), the negative half of each diverging colormap mirrors
-        the positive half (symmetric normalization). When ``False``, ``vmin`` per
-        channel is derived from ``contrast_lims`` or the channel image minimum,
+        When `True` (default), the negative half of each diverging colormap mirrors
+        the positive half (symmetric normalization). When `False`, `vmin` per
+        channel is derived from `contrast_lims` or the channel image minimum,
         enabling independent control over each half.
     save_fpath : Optional[str]
         Path to save the plot. Default is None.
@@ -207,21 +209,21 @@ def plot_multichannel_image_comparison(
         Contrast limits for each channel in the second image. Default is None.
     cmaps : Optional[Union[ColormapRepo, Sequence[ColormapRepo]]]
         Explicit colormap(s). A single entry is broadcast to all channels. If provided
-        it overrides ``diverging_cmaps`` and ``multicolor_cmaps``. Default is None.
+        it overrides `diverging_cmaps` and `multicolor_cmaps`. Default is None.
     multicolor_cmaps : bool
-        Use a distinct colormap per channel (cycles through ``ColormapRepo``).
-        Set to ``False`` for grayscale when ``diverging_cmaps`` is also ``False``.
-        Default is ``False``.
+        Use a distinct colormap per channel (cycles through `ColormapRepo`).
+        Set to `False` for grayscale when `diverging_cmaps` is also `False`.
+        Default is `False`.
     diverging_cmaps : bool
-        Use diverging colormaps. Default is ``False``.
+        Use diverging colormaps. Default is `False`.
     diverging_colors : Optional[Sequence[ColorRepo]]
         Explicit positive colors for diverging colormaps. Default is None.
     diverging_midvalues : Optional[Sequence[float]]
         Midvalues for diverging colormaps. Overrides default of 0. Default is None.
     diverging_symmetric_norm : bool
-        When ``True`` (default), symmetric normalization is used. When ``False``,
-        ``vmin`` per channel is derived independently from each image's
-        ``contrast_lims`` or image minimum.
+        When `True` (default), symmetric normalization is used. When `False`,
+        `vmin` per channel is derived independently from each image's
+        `contrast_lims` or image minimum.
     img_fname : Optional[str]
         Image filename. Default is None.
     save_path : Optional[str]
@@ -382,11 +384,11 @@ def plot_multichannel_image_multicomparison(
     annotations : Optional[Sequence[Sequence[Optional[str]]]]
         Per-image, per-channel text labels. Outer sequence has one entry per row
         (image); inner sequence has one entry per column (channel). Set an inner
-        entry to ``None`` to skip labelling a particular subplot.
-        Example: ``[["GT", "GT"], ["Pred", "Pred"]]`` for 2 images with 2 channels.
+        entry to `None` to skip labelling a particular subplot.
+        Example: `[["GT", "GT"], ["Pred", "Pred"]]` for 2 images with 2 channels.
         Default is None.
     annot_pos : Literal["topleft", "topright"]
-        Corner position for all text overlays. Default is ``"topright"``.
+        Corner position for all text overlays. Default is `"topright"`.
     z_idx : Optional[int]
         Z-slice index to plot in 3D images. Required for 3D images. Default is None.
     x_ROI : Optional[tuple[int, int]]
@@ -395,28 +397,28 @@ def plot_multichannel_image_multicomparison(
         Y-axis ROI as (start, end). Default is None.
     cmaps : Optional[Union[ColormapRepo, Sequence[ColormapRepo]]]
         Explicit colormap(s). A single entry is broadcast to all channels. If provided
-        it overrides ``diverging_cmaps`` and ``multicolor_cmaps``. Default is None.
+        it overrides `diverging_cmaps` and `multicolor_cmaps`. Default is None.
     multicolor_cmaps : bool
-        Use a distinct colormap per channel (cycles through ``ColormapRepo``).
-        Set to ``False`` for grayscale when ``diverging_cmaps`` is also ``False``.
-        Default is ``False``.
+        Use a distinct colormap per channel (cycles through `ColormapRepo`).
+        Set to `False` for grayscale when `diverging_cmaps` is also `False`.
+        Default is `False`.
     diverging_cmaps : bool
-        Use diverging colormaps. Default is ``False``.
+        Use diverging colormaps. Default is `False`.
     diverging_colors : Optional[Sequence[ColorRepo]]
         Explicit positive colors for diverging colormaps. Default is None.
     diverging_midvalues : Optional[Sequence[Optional[Sequence[Optional[float]]]]]
         Per-image, per-channel midvalues for diverging colormaps. Outer sequence has
         one entry per image; inner sequence has one entry per channel. Set an outer
-        entry to ``None`` to use the default midvalue (0) for all channels of that image,
-        or set an inner entry to ``None`` to use the default for a specific channel.
-        Example: ``[[0.0, None], None, [1.0, 2.0]]`` for 3 images with 2 channels.
+        entry to `None` to use the default midvalue (0) for all channels of that image,
+        or set an inner entry to `None` to use the default for a specific channel.
+        Example: `[[0.0, None], None, [1.0, 2.0]]` for 3 images with 2 channels.
         Default is None.
     diverging_symmetric_norm : bool
-        When ``True`` (default), symmetric normalization is used for each image.
-        When ``False``, a per-image per-channel ``vmin`` is derived independently
-        from ``contrast_lims`` or image minima, enabling asymmetric normalization.
+        When `True` (default), symmetric normalization is used for each image.
+        When `False`, a per-image per-channel `vmin` is derived independently
+        from `contrast_lims` or image minima, enabling asymmetric normalization.
     show_cbars : bool
-        Whether to show colorbars. Default is True.
+        Whether to show colorbars. Default is False.
     show_hist : bool
         Whether to show intensity histograms. Default is True.
     save_path : Optional[str]

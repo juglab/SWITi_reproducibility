@@ -15,7 +15,27 @@ def list_files(
     split: Literal["train", "val", "test"],
     subset: Literal["inputs", "targets"],
 ) -> list[Path]:
-    """Return sorted file paths under `<datadir>/<subset>/<split>/`."""
+    """Return sorted files for a dataset split.
+
+    Parameters
+    ----------
+    datadir : str or Path
+        Dataset directory.
+    split : {"train", "val", "test"}
+        Split to list.
+    subset : {"inputs", "targets"}
+        Dataset subset to list.
+
+    Returns
+    -------
+    list of Path
+        Sorted file paths under `<datadir>/<subset>/<split>/`.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the requested subset directory does not exist.
+    """
     files_dir = Path(datadir) / subset / split
     if not files_dir.is_dir():
         raise FileNotFoundError(files_dir)
@@ -27,7 +47,7 @@ def npz_key(source: str, data_idx: int) -> str:
 
     For file-backed inputs the key is `Path(source).stem` so each prediction can
     be matched to its source by filename. For in-memory array inputs (where
-    `InMemoryImageStack` reports `source="array"`) the key falls back to a
+    `InMemoryImageStack` reports `source='array'`) the key falls back to a
     zero-padded `data_idx` so multiple in-memory inputs don't collide.
 
     Parameters
@@ -57,7 +77,7 @@ def save_predictions_npz(
     Parameters
     ----------
     results : dict of {str: NDArray}
-        Per-image predictions keyed by archive key (see :func:`npz_key`).
+        Per-image predictions keyed by archive key.
     save_dir : str or Path
         Output directory. Created if missing.
     filename : str, default="predictions.npz"

@@ -1,20 +1,14 @@
-"""MicroSplit — sliding-window tiled inference (CL-args entry point).
+"""Run MicroSplit inference with SWITi sliding-window tiling.
 
-Headless companion to :mod:`scripts.microsplit_sw_tiled_inference`. Loads a
-pre-trained MicroSplit checkpoint, runs prediction with the dense
-`SlidingWindowTiledPatching` strategy (overlapping kept regions, uniform
-per-pixel MMSE coverage `K^d`), stitches by averaging via the streaming
-`sw_tiled_prediction` helper, and saves a single `.npz` keyed by input-image
-identifier.
+The script loads one dataset and its matching checkpoint, predicts all images in
+the selected split with overlapping kept regions, averages overlapping
+predictions, and writes a `predictions.npz` file plus an
+`inference_params.json` sidecar. The corresponding prediction for each input image can 
+be accessed with a key which is equal to the filename of the input image.
 
-Stride is **derived** from `--mmse-count` (target effective per-pixel coverage)
-together with the patch size (read from the legacy `config.pkl`) and
-`--overlap`. The YX stride is constrained symmetric; for 3D the caller fixes
-`--stride-z` explicitly and the YX subproblem solves
-`K_y * K_x >= ceil(MMSE_COUNT / K_z)`.
-
-The model's per-tile draws are hardcoded to 1 (canonical for SW: per-pixel
-coverage comes from the patching geometry).
+The stride is derived from `--mmse-count`, the patch size in `config.yaml`, and
+`--overlap`. For 3D datasets, `--stride-z` must be provided. he YX stride is constrained 
+symmetric.
 
 Run from the repo root:
 
@@ -42,9 +36,17 @@ from utils.stats import load_or_compute_stats
 
 
 def main(args: argparse.Namespace) -> Path:
-    """Run end-to-end SW-tiled inference for a single experiment.
+    """Run SWITi tiled inference for one dataset.
 
-    Returns the path of the written NPZ file.
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments.
+
+    Returns
+    -------
+    Path
+        Path to the written `predictions.npz` file.
     """
     data_dir = args.data_root / args.dataset
     ckpt_path = args.checkpoint_root / args.dataset / "BaselineVAECL_best.ckpt"
@@ -56,7 +58,7 @@ def main(args: argparse.Namespace) -> Path:
         / "sw_inner_tiling"
     )
 
-    # Derive STRIDE from target MMSE count + patch size (pkl) + overlap.
+    # Derive stride from target MMSE count, patch size, and overlap.
     config_data = load_config_data(config_path)["data"]
     is_3d = bool(config_data.get("mode_3D", False))
     img = int(config_data["image_size"])
@@ -136,6 +138,18 @@ def main(args: argparse.Namespace) -> Path:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Parameters
+    ----------
+    argv : list of str, optional
+        Arguments to parse. If `None`, arguments are read from the command line.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments.
+    """
     p = argparse.ArgumentParser(
         prog="microsplit-sw-tiled-predict",
         description=(
