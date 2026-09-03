@@ -14,8 +14,8 @@
 
 DSET_LIST=(CBG_Z18 HT_LIF24 PaviaATN)
 OVERLAP_LIST=("2 32 32" "32 32" "32 32")
-DATA_ROOT=/project/careamics/switi/data
-CHECKPOINT_ROOT=/project/careamics/switi/ckpts
+DATA_ROOT=/project/careamics/switi-zenodo/data
+CHECKPOINT_ROOT=/project/careamics/switi-zenodo/checkpoints
 PREDICTION_ROOT=/project/careamics/switi/results
 
 DATASET=${DSET_LIST[$SLURM_ARRAY_TASK_ID]}

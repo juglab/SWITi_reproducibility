@@ -30,8 +30,7 @@ Run from the repo root:
         --data-root /path/to/data --prediction-subdir predictions_MMSE64 \\
         --method SWITi
     uv run python scripts/microsplit_compute_metrics.py \\
-        --dataset CBG_Z18 --prediction-dataset CARE3D_zebrafish \\
-        --prediction-root /path/to/results --data-root /path/to/data \\
+        --dataset CBG_Z18 --prediction-root /path/to/results --data-root /path/to/data \\
         --prediction-subdir predictions_MMSE64 --method inner_tiling \\
         --metrics PSNR MSSIM Pearson
 """

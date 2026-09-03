@@ -65,14 +65,6 @@ def parse_args() -> argparse.Namespace:
     # Data location.
     p.add_argument("--dataset", required=True, help="Dataset name, e.g. PaviaATN.")
     p.add_argument(
-        "--prediction-dataset",
-        default=None,
-        help=(
-            "dataset folder under --prediction-root when it differs from --dataset "
-            "(useful for precomputed legacy result directories)"
-        ),
-    )
-    p.add_argument(
         "--prediction-root",
         type=Path,
         required=True,
@@ -245,8 +237,7 @@ def main() -> None:
     args = parse_args()
     out_dir = args.output_dir / args.dataset / args.prediction_subdir / "frc"
     out_dir.mkdir(parents=True, exist_ok=True)
-    prediction_dataset = args.prediction_dataset or args.dataset
-    pred_dir = args.prediction_root / prediction_dataset / args.prediction_subdir
+    pred_dir = args.prediction_root / args.dataset / args.prediction_subdir
     target_dir = args.data_root / args.dataset / "targets" / "test"
 
     # Validate up-front so a bad value fails before the expensive FRC sweep.

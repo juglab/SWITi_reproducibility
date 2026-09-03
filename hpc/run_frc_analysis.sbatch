@@ -13,7 +13,7 @@
 
 DATASET_LIST=(CBG_Z18 HT_LIF24 PaviaATN)
 NDIM_LIST=(3 2 2)
-DATA_ROOT=/project/careamics/switi/data
+DATA_ROOT=/project/careamics/switi-zenodo/data
 PREDICTION_ROOT=/project/careamics/switi/results
 
 DATASET=${DATASET_LIST[$SLURM_ARRAY_TASK_ID]}

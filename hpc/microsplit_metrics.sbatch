@@ -19,8 +19,8 @@
 # `inference_params.json`, while --data-root points to the renamed Zenodo dataset
 # directories. A GPU is requested to accelerate LPIPS.
 
-DATA_ROOT=/project/careamics/switi/data
-CHECKPOINT_ROOT=/project/careamics/switi/ckpts
+DATASET_LIST=(CBG_Z18 HT_LIF24 PaviaATN)
+DATA_ROOT=/project/careamics/switi-zenodo/data
 PREDICTION_ROOT=/project/careamics/switi/results
 MMSE_COUNT=64
 METHOD_LIST=(inner_tiling SWITi)
@@ -30,7 +30,6 @@ DATASET=${DATASET_LIST[$SLURM_ARRAY_TASK_ID]}
 for METHOD in "${METHOD_LIST[@]}"; do
     uv run python -u scripts/microsplit_compute_metrics.py \
         --dataset "$DATASET" \
-        --prediction-dataset "$DATASET" \
         --prediction-root "$PREDICTION_ROOT" \
         --prediction-subdir "predictions_MMSE$MMSE_COUNT" \
         --method "$METHOD" \
