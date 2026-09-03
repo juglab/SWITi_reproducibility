@@ -2,6 +2,10 @@
 
 This repository reproduces the experiments for [SWITi: Quantifying and Reducing Tiling Artifacts with Sliding Window Inner Tiling](https://arxiv.org/abs/2607.18990). SWITi is a test-time procedure for posterior image-splitting models that averages shifted tiled predictions to reduce seam artifacts without increasing the number of forward passes required for an MMSE estimate. The paper also introduces reference-free tiling-artifact metrics based on gradient-distribution tests.
 
+The data and MicroSplit model weights are downloaded from Zenodo:
+- Dataset: https://zenodo.org/records/22213583
+- Model weights: https://zenodo.org/records/22214478.
+
 ## Running the Reproduction
 
 We recommend using `uv` to run the scripts from the repository root with `uv run`. 
