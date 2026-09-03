@@ -18,7 +18,7 @@ See the [`uv` documentation](https://docs.astral.sh/uv/).
 1. Download data and checkpoints.
 
     ```bash
-    uv run python scripts/download.py --output-dir switi
+    uv run scripts/download.py --output-dir switi
     ```
 
     This creates `switi/data` and `switi/checkpoints`.
@@ -26,7 +26,7 @@ See the [`uv` documentation](https://docs.astral.sh/uv/).
 2. Run baseline inner-tiling inference.
 
     ```bash
-    uv run python scripts/microsplit_inner_tiling_inference.py \
+    uv run scripts/microsplit_inner_tiling_inference.py \
         --dataset HT_LIF24 \
         --data-root switi/data \
         --checkpoint-root switi/checkpoints \
@@ -40,7 +40,7 @@ See the [`uv` documentation](https://docs.astral.sh/uv/).
 3. Run SWITi inference.
 
     ```bash
-    uv run python scripts/microsplit_switi_inference.py \
+    uv run scripts/microsplit_switi_inference.py \
         --dataset HT_LIF24 \
         --data-root switi/data \
         --checkpoint-root switi/checkpoints \
@@ -54,14 +54,14 @@ See the [`uv` documentation](https://docs.astral.sh/uv/).
 4. Compute global image-quality metrics.
 
     ```bash
-    uv run python scripts/microsplit_compute_metrics.py \
+    uv run scripts/microsplit_compute_metrics.py \
         --dataset HT_LIF24 \
         --prediction-root switi/results \
         --prediction-subdir predictions_MMSE64 \
         --method inner_tiling \
         --data-root switi/data
 
-    uv run python scripts/microsplit_compute_metrics.py \
+    uv run scripts/microsplit_compute_metrics.py \
         --dataset HT_LIF24 \
         --prediction-root switi/results \
         --prediction-subdir predictions_MMSE64 \
@@ -74,7 +74,7 @@ See the [`uv` documentation](https://docs.astral.sh/uv/).
 5. Run FRC analysis.
 
     ```bash
-    uv run python scripts/run_frc_analysis_on_dataset.py \
+    uv run scripts/run_frc_analysis_on_dataset.py \
         --dataset HT_LIF24 \
         --prediction-root switi/results \
         --prediction-subdir predictions_MMSE64 \
@@ -89,7 +89,7 @@ See the [`uv` documentation](https://docs.astral.sh/uv/).
 6. Run the gradient permutation test.
 
     ```bash
-    uv run python scripts/run_gradient_test_on_dataset.py \
+    uv run scripts/run_gradient_test_on_dataset.py \
         --dataset HT_LIF24 \
         --prediction-root switi/results \
         --prediction-subdir predictions_MMSE64 \
@@ -105,7 +105,7 @@ See the [`uv` documentation](https://docs.astral.sh/uv/).
 7. Create example gradient-test overlay figures.
 
     ```bash
-    uv run python scripts/example_gradient_test_figure.py \
+    uv run scripts/example_gradient_test_figure.py \
         --dataset HT_LIF24 \
         --prediction-root switi/results \
         --prediction-subdir predictions_MMSE64 \

@@ -1,7 +1,7 @@
 [project]
 name = "switi-reproducibility"
 version = "0.1.0"
-description = "Add your description here"
+description = "Scripts to reproduce experiments run for the SWITi paper."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
