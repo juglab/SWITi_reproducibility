@@ -6,6 +6,10 @@ The data and MicroSplit model weights are downloaded from Zenodo:
 - Dataset: https://zenodo.org/records/22213583
 - Model weights: https://zenodo.org/records/22214478.
 
+SWITi has been implemented in [CAREamics](https://github.com/CAREamics/careamics), an image restoration deep-learning library. (Currently in the feature branch `mc/feat/switi-merge`).
+
+The gradient test and Fourier Ring Correlation (FRC) metrics are implemented in the repository [juglab/TilArtMetrics](https://github.com/juglab/TilArtMetrics/tree/main).
+
 ## Running the Reproduction
 
 We recommend using `uv` to run the scripts from the repository root with `uv run`. 
